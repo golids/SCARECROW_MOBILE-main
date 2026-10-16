@@ -12,12 +12,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 
 export default function LoginScreen() {
   const [phoneNumber, setPhoneNumber] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
+  const [showPassword, setShowPassword] = useState<boolean>(false);
   const router = useRouter();
   const params = useLocalSearchParams<{ phone?: string }>();
 
@@ -173,9 +175,21 @@ export default function LoginScreen() {
                   placeholderTextColor="#808080"
                   value={password}
                   onChangeText={setPassword}
-                  secureTextEntry
+                  secureTextEntry={!showPassword}
                   editable={!loading}
                 />
+                <TouchableOpacity
+                  style={styles.eyeIcon}
+                  onPress={() => setShowPassword(!showPassword)}
+                  disabled={loading}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={showPassword ? "eye-off-outline" : "eye-outline"}
+                    size={22}
+                    color="#4F8F3A"
+                  />
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -312,13 +326,21 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     height: 50,
     borderColor: "#123B25",
+    flexDirection: "row",
+    alignItems: "center",
   },
   input: {
+    flex: 1,
     paddingHorizontal: 15,
     paddingVertical: 13,
     fontSize: 15,
     fontFamily: "PlusJakartaSans_400Regular",
     color: "#000000",
+  },
+  eyeIcon: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "transparent",
   },
   hintText: {
     fontSize: 10,

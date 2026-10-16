@@ -55,7 +55,7 @@ export default function Index() {
     // Redirect after 3 seconds (no out animation)
     const timer = setTimeout(() => {
       router.push("/screens/LoginScreen");
-    }, 5000);
+    }, 3000);
 
     return () => clearTimeout(timer);
   }, [router, fontsLoaded]);

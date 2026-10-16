@@ -1,3 +1,4 @@
+// app/(tabs)/settings.tsx
 import React from "react";
 import {
   View,
@@ -15,13 +16,36 @@ import { useRouter } from "expo-router";
 import { supabase } from "../lib/supabase";
 import { Device, fetchDevices, updateDeviceIp, isRecentlyAlive } from "../lib/devices";
 
+/* -------------------------------------------------------------------------- */
+/*                                  COLORS                                    */
+/* -------------------------------------------------------------------------- */
+// Same palette as Home and Logs. Tip: move this into constants/colors.ts and
+// import it in all three screens.
+
+const COLORS = {
+  white: "#FFFFFF",
+  darkGreen: "#123B25",
+  primary: "#4F8F3A",
+  lightGreen: "#E8F0B8",
+  veryLightGreen: "#F7F9E9",
+  gold: "#D9B83F",
+  lightGold: "#FBF7E7",
+  gray: "#808080",
+  lightGray: "#F5F5F5",
+  border: "#E5E9D2",
+};
+
+/* -------------------------------------------------------------------------- */
+/*                              DEVICE IP ROW                                 */
+/* -------------------------------------------------------------------------- */
+
 // One row per RPi camera — lets whoever is on-site doing maintenance type in
 // the Pi's current local WiFi IP (shown on the Pi itself / your router's
-// client list) so the app's Live Feed and Activity Logs pick it back up.
+// client list) so the app's Activity Logs pick it back up.
 function DeviceIpRow({ device, onSaved }: { device: Device; onSaved: () => void }) {
   const [ip, setIp] = React.useState(device.ip_address ?? "");
   const [saving, setSaving] = React.useState(false);
-  const online = isRecentlyAlive(device);
+  const active = isRecentlyAlive(device);
 
   const handleSave = async () => {
     setSaving(true);
@@ -39,32 +63,67 @@ function DeviceIpRow({ device, onSaved }: { device: Device; onSaved: () => void 
   return (
     <View style={styles.deviceRow}>
       <View style={styles.deviceRowTop}>
-        <View style={[styles.statusDot, online ? styles.statusOnline : styles.statusOffline]} />
-        <Text style={styles.deviceName}>{device.name}</Text>
-        <Text style={styles.deviceLocation}>{device.location}</Text>
+        <View style={[styles.statusDot, active ? styles.statusActive : styles.statusInactive]} />
+
+        <View style={styles.deviceTextWrap}>
+          <Text style={styles.deviceName} numberOfLines={1}>
+            {device.name}
+          </Text>
+          {!!device.location && (
+            <Text style={styles.deviceLocation} numberOfLines={1}>
+              {device.location}
+            </Text>
+          )}
+        </View>
+
+        <View
+          style={[
+            styles.statusBadge,
+            active ? styles.statusBadgeActive : styles.statusBadgeInactive,
+          ]}
+        >
+          <Text
+            style={[
+              styles.statusBadgeText,
+              active ? styles.statusBadgeTextActive : styles.statusBadgeTextInactive,
+            ]}
+          >
+            {active ? "Active" : "Inactive"}
+          </Text>
+        </View>
       </View>
+
       <View style={styles.ipRow}>
         <TextInput
           value={ip}
           onChangeText={setIp}
           placeholder="192.168.1.xx"
-          placeholderTextColor="#808080"
+          placeholderTextColor={COLORS.gray}
           keyboardType="numbers-and-punctuation"
           autoCapitalize="none"
           autoCorrect={false}
           style={styles.ipInput}
         />
-        <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
+        <TouchableOpacity
+          style={styles.saveBtn}
+          onPress={handleSave}
+          disabled={saving}
+          activeOpacity={0.8}
+        >
           {saving ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={COLORS.white} />
           ) : (
-            <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+            <Ionicons name="checkmark" size={18} color={COLORS.white} />
           )}
         </TouchableOpacity>
       </View>
     </View>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/*                              SETTINGS SCREEN                               */
+/* -------------------------------------------------------------------------- */
 
 export default function SettingsScreen() {
   const [loading, setLoading] = React.useState(false);
@@ -85,33 +144,36 @@ export default function SettingsScreen() {
   }, [loadDevices]);
 
   const handleLogout = async () => {
-    Alert.alert(
-      "Log Out",
-      "Are you sure you want to log out?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Log Out",
-          style: "destructive",
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const { error } = await supabase.auth.signOut();
-              if (error) {
-                Alert.alert("Error", error.message);
-              } else {
-                router.replace("/screens/LoginScreen");
-              }
-            } catch (error) {
-              Alert.alert("Error", "Something went wrong. Please try again.");
-            } finally {
-              setLoading(false);
+    Alert.alert("Log Out", "Are you sure you want to log out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Log Out",
+        style: "destructive",
+        onPress: async () => {
+          setLoading(true);
+          try {
+            const { error } = await supabase.auth.signOut();
+            if (error) {
+              Alert.alert("Error", error.message);
+            } else {
+              router.replace("/screens/LoginScreen");
             }
-          },
+          } catch (error) {
+            Alert.alert("Error", "Something went wrong. Please try again.");
+          } finally {
+            setLoading(false);
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
+
+  const options: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
+    { icon: "person-outline", label: "Account" },
+    { icon: "notifications-outline", label: "Notifications" },
+    { icon: "lock-closed-outline", label: "Privacy" },
+    { icon: "help-circle-outline", label: "Help & Support" },
+  ];
 
   return (
     <View style={styles.background}>
@@ -125,56 +187,53 @@ export default function SettingsScreen() {
           <View style={styles.header}>
             <View>
               <Text style={styles.headerTitle}>Settings</Text>
-              <Text style={styles.headerSubtitle}>Manage cameras and your account</Text>
+              <Text style={styles.headerSubtitle}>Manage devices and your account</Text>
             </View>
           </View>
+
           {/* ── Camera Devices (maintenance) ── */}
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Camera Devices</Text>
             <Text style={styles.sectionHint}>
               On-site for maintenance? Connect your phone to the same WiFi as the
-              cameras, then set each Pi's local IP here so Live Feed and Activity
-              Logs reconnect to it.
+              cameras, then set each Pi's local IP here so the app can reconnect
+              to it.
             </Text>
+
             {devices.map((d) => (
               <DeviceIpRow key={d.id} device={d} onSaved={loadDevices} />
             ))}
+
             {devices.length === 0 && (
-              <Text style={styles.sectionHint}>No devices found yet — add them in Supabase.</Text>
+              <View style={styles.emptyBox}>
+                <Ionicons name="hardware-chip-outline" size={22} color={COLORS.gray} />
+                <Text style={styles.emptyBoxText}>
+                  No devices found yet — add them in Supabase.
+                </Text>
+              </View>
             )}
           </View>
 
           {/* ── Settings Options ── */}
           <View style={styles.section}>
-            <TouchableOpacity style={styles.settingRow}>
-              <Ionicons name="person-outline" size={20} color="#4F8F3A" />
-              <Text style={styles.settingText}>Account</Text>
-              <Ionicons name="chevron-forward" size={18} color="#808080" style={styles.chevron} />
-            </TouchableOpacity>
+            {options.map((opt, index) => (
+              <React.Fragment key={opt.label}>
+                <TouchableOpacity style={styles.settingRow} activeOpacity={0.7}>
+                  <View style={styles.settingIconWrap}>
+                    <Ionicons name={opt.icon} size={18} color={COLORS.primary} />
+                  </View>
+                  <Text style={styles.settingText}>{opt.label}</Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={COLORS.primary}
+                    style={styles.chevron}
+                  />
+                </TouchableOpacity>
 
-            <View style={styles.divider} />
-
-            <TouchableOpacity style={styles.settingRow}>
-              <Ionicons name="notifications-outline" size={20} color="#4F8F3A" />
-              <Text style={styles.settingText}>Notifications</Text>
-              <Ionicons name="chevron-forward" size={18} color="#808080" style={styles.chevron} />
-            </TouchableOpacity>
-
-            <View style={styles.divider} />
-
-            <TouchableOpacity style={styles.settingRow}>
-              <Ionicons name="lock-closed-outline" size={20} color="#4F8F3A" />
-              <Text style={styles.settingText}>Privacy</Text>
-              <Ionicons name="chevron-forward" size={18} color="#808080" style={styles.chevron} />
-            </TouchableOpacity>
-
-            <View style={styles.divider} />
-
-            <TouchableOpacity style={styles.settingRow}>
-              <Ionicons name="help-circle-outline" size={20} color="#4F8F3A" />
-              <Text style={styles.settingText}>Help & Support</Text>
-              <Ionicons name="chevron-forward" size={18} color="#808080" style={styles.chevron} />
-            </TouchableOpacity>
+                {index < options.length - 1 && <View style={styles.divider} />}
+              </React.Fragment>
+            ))}
           </View>
 
           {/* ── Logout Button ── */}
@@ -183,12 +242,18 @@ export default function SettingsScreen() {
               style={[styles.logoutButton, loading && styles.logoutButtonDisabled]}
               onPress={handleLogout}
               disabled={loading}
+              activeOpacity={0.8}
             >
               {loading ? (
-                <ActivityIndicator color="#123B25" size="small" />
+                <ActivityIndicator color={COLORS.darkGreen} size="small" />
               ) : (
                 <>
-                  <Ionicons name="log-out-outline" size={30} color="#123B25" style={{ marginRight: 8 }} />
+                  <Ionicons
+                    name="log-out-outline"
+                    size={26}
+                    color={COLORS.darkGreen}
+                    style={{ marginRight: 8 }}
+                  />
                   <Text style={styles.logoutText}>Log Out</Text>
                 </>
               )}
@@ -200,148 +265,248 @@ export default function SettingsScreen() {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/*                                  STYLES                                    */
+/* -------------------------------------------------------------------------- */
+
 const styles = StyleSheet.create({
   background: {
     flex: 1,
     width: "100%",
     height: "100%",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.white,
   },
+
   container: {
     flex: 1,
   },
+
   scroll: {
     flex: 1,
   },
+
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 60,
     paddingBottom: 120,
   },
+
+  /* Header */
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 20,
   },
+
   headerTitle: {
     fontSize: 24,
     fontFamily: "PlusJakartaSans_700Bold",
-    color: "#123B25",
+    color: COLORS.darkGreen,
   },
+
   headerSubtitle: {
     fontSize: 12,
     fontFamily: "PlusJakartaSans_400Regular",
-    color: "#808080",
+    color: COLORS.gray,
     marginTop: 2,
   },
+
+  /* Cards */
   section: {
     marginBottom: 14,
-    backgroundColor: "rgba(232,240,184,0.8)",
+    backgroundColor: COLORS.white,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: "#E8F0B8",
+    borderColor: COLORS.border,
     overflow: "hidden",
     padding: 14,
   },
+
   sectionLabel: {
-    fontSize: 14,
+    fontSize: 20,
     fontFamily: "PlusJakartaSans_600SemiBold",
-    color: "#123B25",
+    color: COLORS.darkGreen,
     marginBottom: 4,
   },
+
   sectionHint: {
     fontSize: 11,
     fontFamily: "PlusJakartaSans_400Regular",
-    color: "#808080",
-    marginBottom: 10,
+    color: COLORS.gray,
+    marginBottom: 12,
+    lineHeight: 16,
   },
+
+  /* Device rows */
   deviceRow: {
-    backgroundColor: "rgba(255,255,255,0.5)",
+    backgroundColor: COLORS.white,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#E8F0B8",
+    borderColor: COLORS.border,
     padding: 10,
-    marginBottom: 8,
+    marginBottom: 10,
   },
+
   deviceRowTop: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginBottom: 8,
+    marginBottom: 10,
   },
+
   statusDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
+    marginRight: 8,
   },
-  statusOnline: {
-    backgroundColor: "#4F8F3A",
+
+  statusActive: {
+    backgroundColor: COLORS.primary,
   },
-  statusOffline: {
-    backgroundColor: "#D32F2F",
+
+  statusInactive: {
+    backgroundColor: COLORS.gray,
   },
+
+  deviceTextWrap: {
+    flex: 1,
+    marginRight: 8,
+  },
+
   deviceName: {
-    fontSize: 13,
+    fontSize: 14,
     fontFamily: "PlusJakartaSans_600SemiBold",
-    color: "#123B25",
+    color: COLORS.darkGreen,
   },
+
   deviceLocation: {
     fontSize: 11,
     fontFamily: "PlusJakartaSans_400Regular",
-    color: "#808080",
-    marginLeft: "auto",
+    color: COLORS.gray,
+    marginTop: 1,
   },
+
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+
+  statusBadgeActive: {
+    backgroundColor: COLORS.veryLightGreen,
+    borderColor: COLORS.primary,
+  },
+
+  statusBadgeInactive: {
+    backgroundColor: COLORS.lightGray,
+    borderColor: COLORS.border,
+  },
+
+  statusBadgeText: {
+    fontSize: 11,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+  },
+
+  statusBadgeTextActive: {
+    color: COLORS.primary,
+  },
+
+  statusBadgeTextInactive: {
+    color: COLORS.gray,
+  },
+
   ipRow: {
     flexDirection: "row",
     gap: 8,
   },
+
   ipInput: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.lightGray,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#E8F0B8",
+    borderColor: COLORS.border,
     paddingHorizontal: 10,
     paddingVertical: 8,
     fontSize: 13,
     fontFamily: "PlusJakartaSans_400Regular",
-    color: "#123B25",
+    color: COLORS.darkGreen,
   },
+
   saveBtn: {
     width: 38,
     height: 38,
     borderRadius: 8,
-    backgroundColor: "#4F8F3A",
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
   },
+
+  /* Empty state */
+  emptyBox: {
+    minHeight: 70,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.lightGray,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+
+  emptyBoxText: {
+    fontSize: 11,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: COLORS.gray,
+    marginTop: 6,
+    textAlign: "center",
+  },
+
+  /* Option rows */
   settingRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 2,
-    paddingVertical: 14,
+    paddingVertical: 12,
   },
+
+  settingIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.veryLightGreen,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   settingText: {
     flex: 1,
     marginLeft: 12,
     fontSize: 14,
     fontFamily: "PlusJakartaSans_500Medium",
-    color: "#123B25",
+    color: COLORS.darkGreen,
   },
+
   chevron: {
     marginLeft: "auto",
   },
+
   divider: {
     height: 1,
-    backgroundColor: "rgba(232,240,184,1)",
+    backgroundColor: COLORS.border,
   },
+
+  /* Logout */
   logoutContainerStatic: {
     marginTop: 10,
   },
+
   logoutButton: {
     flexDirection: "row",
-    backgroundColor: "rgba(232,240,184,0.8)",
+    backgroundColor: COLORS.white,
     borderRadius: 14,
     paddingVertical: 10,
     alignItems: "center",
@@ -350,13 +515,15 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     justifyContent: "center",
     borderWidth: 1.5,
-    borderColor: "#4F8F3A",
+    borderColor: COLORS.primary,
   },
+
   logoutButtonDisabled: {
     opacity: 0.7,
   },
+
   logoutText: {
-    color: "#123B25",
+    color: COLORS.darkGreen,
     fontSize: 16,
     fontFamily: "PlusJakartaSans_600SemiBold",
     letterSpacing: 0.5,

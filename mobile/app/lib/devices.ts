@@ -1,13 +1,15 @@
 // app/lib/devices.ts
 //
-// Data layer for the 2 Raspberry Pi scarecrow cameras.
+// Data layer for the Raspberry Pi scarecrow cameras.
 // Expects two Supabase tables — see /supabase/schema.sql for the exact DDL:
 //
-//   devices          one row per RPi camera (2 rows for your setup)
+//   devices          one row per RPi camera
 //   detection_logs   one row per ML detection / device event, written by the Pi
 //
-// The Pi is the thing that writes to `devices` (heartbeat: status + last_seen)
-// and `detection_logs` (every time its ML model fires). The app only reads.
+// The Pi is the thing that writes to `devices` (heartbeat: last_seen) and
+// `detection_logs` (every time its ML model fires). The app reads both, and
+// only writes `ip_address` / `port` (see updateDeviceIp) — make sure your RLS
+// policies allow exactly that for the signed-in admin.
 
 import { supabase } from "./supabase";
 
@@ -35,13 +37,11 @@ export interface DetectionLog {
   created_at: string; // ISO timestamp
 }
 
-/** Build the MJPEG stream URL for a device, given the Pi's local IP/port. */
-export function streamUrlFor(device: Device): string | null {
-  if (!device.ip_address) return null;
-  return `http://${device.ip_address}:${device.port}/video_feed`;
-}
-
-/** A device counts as online if we've heard from it in the last 30s. */
+/**
+ * A device counts as active if we've heard from it in the last 30s.
+ * `last_seen` is the source of truth — the `status` column can go stale if a
+ * Pi loses power before it can write "offline".
+ */
 export function isRecentlyAlive(device: Device): boolean {
   if (!device.last_seen) return false;
   return Date.now() - new Date(device.last_seen).getTime() < 30_000;
@@ -57,10 +57,17 @@ export async function fetchDevices(): Promise<Device[]> {
   return data as Device[];
 }
 
-/** Fires `onChange` whenever any device row is inserted/updated (status, last_seen, ip). */
+// Several screens (Home, Logs, Settings) can be mounted at the same time in the
+// tab navigator. supabase.channel() returns the SAME channel object for the same
+// name, and adding listeners to an already-subscribed channel throws — so every
+// subscription gets its own unique channel name.
+let channelCounter = 0;
+const uniqueChannel = (base: string) => `${base}-${++channelCounter}`;
+
+/** Fires `onChange` whenever any device row is inserted/updated (last_seen, ip). */
 export function subscribeToDevices(onChange: () => void) {
   const channel = supabase
-    .channel("devices-changes")
+    .channel(uniqueChannel("devices-changes"))
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "devices" },
@@ -98,7 +105,7 @@ export async function fetchDetectionLogs(limit = 50): Promise<DetectionLog[]> {
 /** Fires `onInsert` with the new row the moment the Pi writes a detection event. */
 export function subscribeToDetectionLogs(onInsert: (log: DetectionLog) => void) {
   const channel = supabase
-    .channel("detection-logs-changes")
+    .channel(uniqueChannel("detection-logs-changes"))
     .on(
       "postgres_changes",
       { event: "INSERT", schema: "public", table: "detection_logs" },

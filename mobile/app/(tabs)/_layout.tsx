@@ -51,19 +51,6 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="live"
-        options={{
-          title: "Live",
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "videocam" : "videocam-outline"}
-              size={22}
-              color={color}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="logs"
         options={{
           title: "Logs",
@@ -97,14 +84,15 @@ const styles = StyleSheet.create({
   tabBar: {
     position: "absolute",
     bottom: 20,
-    left: 20,
-    right: 20,
+    marginHorizontal: 20,   // adjust this to move/resize the bar equally on both sides
     height: 64,
+    paddingTop: 0,
+    paddingBottom: 0,       // removes the safe-area padding that pushes content up
+    paddingHorizontal: 0,
     borderRadius: 20,
     backgroundColor: "transparent",
     borderTopWidth: 0,
     elevation: 0,
-    // No shadow on the container — prevents bleed-through inside the pill
     shadowColor: "transparent",
     shadowOpacity: 0,
     shadowRadius: 0,
