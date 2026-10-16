@@ -142,9 +142,9 @@ export default function LoginScreen() {
 
           {/* Login card */}
           <View style={styles.loginCard}>
-            <Text style={styles.title}>LOG IN NOW</Text>
+            <Text style={styles.title}>ADMIN PORTAL</Text>
             <Text style={styles.subtitle}>
-              Please log-in your account to continue using our app
+              Authorized personnel only. Please sign in to continue.
             </Text>
 
             <View style={styles.inputContainer}>
@@ -219,26 +219,6 @@ export default function LoginScreen() {
                 <Text style={styles.signUpLink}>Sign Up</Text>
               </TouchableOpacity>
             </View>
-
-            <Text style={styles.orContinueText}>or continue with</Text>
-
-            <View style={styles.socialContainer}>
-              <TouchableOpacity onPress={() => handleSocialLogin("Facebook")} disabled={loading}>
-                <Image
-                  source={require("../../assets/images/fb-icon.png")}
-                  style={styles.socialIcon}
-                  resizeMode="contain"
-                />
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={() => handleSocialLogin("Google")} disabled={loading}>
-                <Image
-                  source={require("../../assets/images/gmail-icon.png")}
-                  style={styles.socialIcon}
-                  resizeMode="contain"
-                />
-              </TouchableOpacity>
-            </View>
           </View>
         </View>
       </SafeAreaView>
@@ -299,7 +279,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.4)",
   },
   title: {
-    fontSize: 30,
+    fontSize: 25,
     fontFamily: "PlusJakartaSans_700Bold",
     color: "#000000",
     marginBottom: 5,

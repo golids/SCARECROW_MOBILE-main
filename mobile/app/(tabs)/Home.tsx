@@ -215,8 +215,6 @@ export default function HomeScreen() {
    * the detection logs (same source as the Logs tab).
    */
 
-  const userName = "";
-
   const farmConnection = "";
   const farmSize = "";
 
@@ -383,23 +381,11 @@ export default function HomeScreen() {
         bounces
       >
         {/* ---------------------------------------------------------------- */}
-        {/* Header (Welcome + Add Button)                                     */}
+        {/* Header (Welcome                                                  */}
         {/* ---------------------------------------------------------------- */}
 
         <View style={styles.header}>
-          <Text style={styles.welcome}>
-            {userName ? `Hello, ${userName}` : "Hello, Farmer!"}
-          </Text>
-
-          <TouchableOpacity
-            style={styles.addBtn}
-            activeOpacity={0.8}
-            onPress={() => {
-              // TODO: Add device / farm action
-            }}
-          >
-            <Ionicons name="add" size={22} color={COLORS.white} />
-          </TouchableOpacity>
+          <Text style={styles.welcome}>Device Monitoring</Text>
         </View>
 
         {/* ---------------------------------------------------------------- */}
