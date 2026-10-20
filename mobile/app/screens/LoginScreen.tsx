@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -9,63 +9,92 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  ScrollView,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "../lib/supabase";
+import { supabase } from "../../lib/supabase";
+
+// Supabase Auth needs an email, so the username is turned into
+// <username>@scarecrow.app behind the scenes.
+const EMAIL_DOMAIN = "scarecrow.app";
+
+function friendlyAuthError(message: string) {
+  const m = message.toLowerCase();
+
+  if (m.includes("invalid login credentials")) {
+    return "Incorrect username or password.";
+  }
+  if (m.includes("email not confirmed")) {
+    return "This account hasn't been confirmed yet. Please contact your administrator.";
+  }
+  return message;
+}
 
 export default function LoginScreen() {
-  const [phoneNumber, setPhoneNumber] = useState<string>("");
+  const [username, setUsername] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [showPassword, setShowPassword] = useState<boolean>(false);
-  const router = useRouter();
-  const params = useLocalSearchParams<{ phone?: string }>();
+  const [showForgotBanner, setShowForgotBanner] = useState<boolean>(false);
 
-  // Pre-fill phone number if coming from signup
+  const passwordRef = useRef<TextInput>(null);
+  const router = useRouter();
+  const params = useLocalSearchParams<{ username?: string; phone?: string }>();
+
+  // Pre-fill username if coming from signup (still accepts the old `phone` param)
   useEffect(() => {
-    if (params.phone) {
-      setPhoneNumber(params.phone);
+    const prefill = params.username ?? params.phone;
+    if (prefill) {
+      setUsername(prefill);
     }
-  }, [params.phone]);
+  }, [params.username, params.phone]);
 
   const handleLogin = async () => {
-    if (!phoneNumber.trim() || !password.trim()) {
+    const cleanUsername = username.trim().toLowerCase();
+
+    if (!cleanUsername || !password) {
       Alert.alert("Error", "Please fill in all fields");
       return;
     }
 
-    // Basic phone number validation
-    if (phoneNumber.length < 10) {
-      Alert.alert("Error", "Please enter a valid phone number");
+    // A full email is also accepted; otherwise only characters that are
+    // valid in the first part of an email address.
+    const isEmail = cleanUsername.includes("@");
+
+    if (!isEmail && !/^[a-z0-9._-]+$/.test(cleanUsername)) {
+      Alert.alert(
+        "Error",
+        "Username can only contain letters, numbers, dots, dashes and underscores."
+      );
       return;
     }
 
     setLoading(true);
 
     try {
-      // Automatically append domain to phone number
-      const email = `${phoneNumber.trim()}@scarecrow.app`;
+      const email = isEmail ? cleanUsername : `${cleanUsername}@${EMAIL_DOMAIN}`;
 
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email,
-        password: password,
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       });
 
       if (error) {
-        Alert.alert("Login Failed", error.message);
-      } else {
-        // Login successful
-        Alert.alert("Success", "Logged in successfully!", [
-          {
-            text: "OK",
-            onPress: () => router.replace("/(tabs)/Home"),
-          },
-        ]);
+        Alert.alert("Login Failed", friendlyAuthError(error.message));
+        return;
       }
+
+      // Logged in — go straight to the app
+      router.replace("/(tabs)/Home");
     } catch (error) {
-      Alert.alert("Error", "Network error. Please check your connection and try again.");
+      Alert.alert(
+        "Error",
+        "Network error. Please check your connection and try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -75,48 +104,10 @@ export default function LoginScreen() {
     router.push("/screens/SignupScreen");
   };
 
+  // Admin-only app: passwords are reset by the administrator / maintenance,
+  // so just show a banner instead of sending a reset email.
   const handleForgotPassword = () => {
-    if (!phoneNumber.trim()) {
-      Alert.alert("Error", "Please enter your phone number to reset password");
-      return;
-    }
-
-    Alert.alert(
-      "Reset Password",
-      `A reset link will be sent to ${phoneNumber}@scarecrow.app`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Send",
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const email = `${phoneNumber.trim()}@scarecrow.app`;
-              const { error } = await supabase.auth.resetPasswordForEmail(email, {
-                redirectTo: "yourapp://reset-password", // Update this with your app scheme
-              });
-
-              if (error) {
-                Alert.alert("Error", error.message);
-              } else {
-                Alert.alert(
-                  "Password Reset",
-                  "If this phone number is registered, you will receive password reset instructions."
-                );
-              }
-            } catch (error) {
-              Alert.alert("Error", "Network error. Please try again.");
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleSocialLogin = (provider: string) => {
-    Alert.alert("Info", `${provider} login coming soon!`);
+    setShowForgotBanner((visible) => !visible);
   };
 
   return (
@@ -126,101 +117,143 @@ export default function LoginScreen() {
       resizeMode="cover"
     >
       <SafeAreaView style={styles.container}>
-        <View style={styles.content}>
-          {/* Logo + App Name + Abbreviation */}
-          <View style={styles.brandingContainer}>
-            <Image
-              source={require("../../assets/images/app-logo.png")}
-              style={styles.logo}
-              resizeMode="contain"
-            />
-            <Text style={styles.appName}>
-              SCARE<Text style={styles.appNameBold}>CROW</Text>
-            </Text>
-            <Text style={styles.abbrName}>Crop Reliable Operative Warden</Text>
-          </View>
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <ScrollView
+            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Logo + App Name + Abbreviation */}
+            <View style={styles.brandingContainer}>
+              <Image
+                source={require("../../assets/images/app-logo.png")}
+                style={styles.logo}
+                resizeMode="contain"
+              />
+              <Text style={styles.appName}>
+                SCARE<Text style={styles.appNameBold}>CROW</Text>
+              </Text>
+              <Text style={styles.abbrName}>Crop Reliable Operative Warden</Text>
+            </View>
 
-          {/* Login card */}
-          <View style={styles.loginCard}>
-            <Text style={styles.title}>ADMIN PORTAL</Text>
-            <Text style={styles.subtitle}>
-              Authorized personnel only. Please sign in to continue.
-            </Text>
+            {/* Login card */}
+            <View style={styles.loginCard}>
+              <Text style={styles.title}>ADMIN PORTAL</Text>
+              <Text style={styles.subtitle}>
+                Authorized personnel only. Please sign in to continue.
+              </Text>
 
-            <View style={styles.inputContainer}>
-              <View style={styles.inputWrapper}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Phone Number"
-                  placeholderTextColor="#808080"
-                  value={phoneNumber}
-                  onChangeText={setPhoneNumber}
-                  keyboardType="phone-pad"
-                  autoCapitalize="none"
-                  editable={!loading}
-                />
+              <View style={styles.inputContainer}>
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Username"
+                    placeholderTextColor="#808080"
+                    value={username}
+                    onChangeText={setUsername}
+                    keyboardType="default"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="username"
+                    textContentType="username"
+                    returnKeyType="next"
+                    onSubmitEditing={() => passwordRef.current?.focus()}
+                    blurOnSubmit={false}
+                    editable={!loading}
+                  />
+                </View>
+
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    ref={passwordRef}
+                    style={styles.input}
+                    placeholder="Password"
+                    placeholderTextColor="#808080"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="password"
+                    textContentType="password"
+                    returnKeyType="go"
+                    onSubmitEditing={handleLogin}
+                    editable={!loading}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeIcon}
+                    onPress={() => setShowPassword(!showPassword)}
+                    disabled={loading}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={showPassword ? "eye-off-outline" : "eye-outline"}
+                      size={22}
+                      color="#4F8F3A"
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
 
-              {/* Hint text showing the actual login format */}
-              {phoneNumber.length > 0 && (
-                <Text style={styles.hintText}>
-                  You'll login as: {phoneNumber}@scarecrow.app
-                </Text>
-              )}
+              <TouchableOpacity
+                style={styles.forgotContainer}
+                onPress={handleForgotPassword}
+                disabled={loading}
+              >
+                <Text style={styles.forgotText}>Forgot Password?</Text>
+              </TouchableOpacity>
 
-              <View style={styles.inputWrapper}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Password"
-                  placeholderTextColor="#808080"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  editable={!loading}
-                />
-                <TouchableOpacity
-                  style={styles.eyeIcon}
-                  onPress={() => setShowPassword(!showPassword)}
-                  disabled={loading}
-                  activeOpacity={0.7}
-                >
+              {/* Forgot password banner */}
+              {showForgotBanner && (
+                <View style={styles.banner} accessibilityLiveRegion="polite">
                   <Ionicons
-                    name={showPassword ? "eye-off-outline" : "eye-outline"}
+                    name="information-circle"
                     size={22}
                     color="#4F8F3A"
+                    style={styles.bannerIcon}
                   />
+
+                  <Text style={styles.bannerText}>
+                    Please contact your{" "}
+                    <Text style={styles.bannerBold}>Administrator</Text> or the{" "}
+                    <Text style={styles.bannerBold}>Maintenance team</Text> to have
+                    your password reset.
+                  </Text>
+
+                  <TouchableOpacity
+                    onPress={() => setShowForgotBanner(false)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={18} color="#123B25" />
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[styles.loginButton, loading && styles.loginButtonDisabled]}
+                onPress={handleLogin}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.loginButtonText}>LOG IN</Text>
+                )}
+              </TouchableOpacity>
+
+              <View style={styles.signUpContainer}>
+                <Text style={styles.signUpText}>Don't have account? </Text>
+                <TouchableOpacity onPress={handleSignUp} disabled={loading}>
+                  <Text style={styles.signUpLink}>Sign Up</Text>
                 </TouchableOpacity>
               </View>
             </View>
-
-            <TouchableOpacity
-              style={styles.forgotContainer}
-              onPress={handleForgotPassword}
-              disabled={loading}
-            >
-              <Text style={styles.forgotText}>Forgot Password</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.loginButton, loading && styles.loginButtonDisabled]}
-              onPress={handleLogin}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <Text style={styles.loginButtonText}>LOG IN</Text>
-              )}
-            </TouchableOpacity>
-
-            <View style={styles.signUpContainer}>
-              <Text style={styles.signUpText}>Don't have account? </Text>
-              <TouchableOpacity onPress={handleSignUp} disabled={loading}>
-                <Text style={styles.signUpLink}>Sign Up</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </ImageBackground>
   );
@@ -236,7 +269,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
     paddingHorizontal: 24,
     justifyContent: "center",
   },
@@ -275,6 +308,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     paddingVertical: 24,
     paddingHorizontal: 20,
+    marginBottom: 24,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.4)",
   },
@@ -322,15 +356,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     backgroundColor: "transparent",
   },
-  hintText: {
-    fontSize: 10,
-    fontFamily: "PlusJakartaSans_400Regular",
-    color: "#4F8F3A",
-    marginLeft: "5%",
-    marginTop: -8,
-    marginBottom: 8,
-    fontStyle: "italic",
-  },
   forgotContainer: {
     alignItems: "flex-end",
     marginTop: -10,
@@ -341,6 +366,33 @@ const styles = StyleSheet.create({
     color: "#4F8F3A",
     fontSize: 15,
     fontFamily: "PlusJakartaSans_500Medium",
+  },
+  banner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.85)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#4F8F3A",
+    padding: 12,
+    width: "95%",
+    alignSelf: "center",
+    marginTop: -8,
+    marginBottom: 30,
+  },
+  bannerIcon: {
+    marginTop: 1,
+  },
+  bannerText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 19,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: "#123B25",
+  },
+  bannerBold: {
+    fontFamily: "PlusJakartaSans_600SemiBold",
   },
   loginButton: {
     backgroundColor: "#4F8F3A",
@@ -379,21 +431,5 @@ const styles = StyleSheet.create({
     color: "#30ac07",
     fontSize: 15,
     fontFamily: "PlusJakartaSans_600SemiBold",
-  },
-  orContinueText: {
-    color: "#000000",
-    fontSize: 13,
-    fontFamily: "PlusJakartaSans_400Regular",
-    textAlign: "center",
-    marginBottom: 8,
-  },
-  socialContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 10,
-  },
-  socialIcon: {
-    width: 70,
-    height: 70,
   },
 });

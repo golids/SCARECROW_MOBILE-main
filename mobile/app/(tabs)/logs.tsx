@@ -20,7 +20,7 @@ import {
   fetchDevices,
   fetchDetectionLogs,
   subscribeToDetectionLogs,
-} from "../lib/devices";
+} from "../../lib/devices";
 
 /* -------------------------------------------------------------------------- */
 /*                                  COLORS                                    */

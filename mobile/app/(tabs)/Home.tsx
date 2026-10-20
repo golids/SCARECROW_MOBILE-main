@@ -1,4 +1,5 @@
 import React from "react";
+import { useRouter } from "expo-router";
 import {
   View,
   Text,
@@ -7,7 +8,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons, MaterialIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import {
   Device as DbDevice,
   DetectionLog,
@@ -16,7 +17,7 @@ import {
   isRecentlyAlive,
   subscribeToDevices,
   subscribeToDetectionLogs,
-} from "../lib/devices";
+} from "../../lib/devices";
 
 /* -------------------------------------------------------------------------- */
 /*                                  COLORS                                    */
@@ -33,6 +34,8 @@ const COLORS = {
   gray: "#808080",
   lightGray: "#F5F5F5",
   border: "#E5E9D2",
+  red: "#D32F2F",
+  lightRed: "#FDECEA",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -46,11 +49,14 @@ type Device = {
   id: string;
   name: string;
   status: DeviceStatus;
+  lastSeen: string | null; // ISO timestamp from devices.last_seen
 };
 
 /* -------------------------------------------------------------------------- */
 /*                                  HELPERS                                   */
 /* -------------------------------------------------------------------------- */
+
+
 
 function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -58,6 +64,27 @@ function startOfDay(d: Date) {
 
 function isSameDay(a: Date, b: Date) {
   return startOfDay(a).getTime() === startOfDay(b).getTime();
+}
+
+// "just now", "5 min ago", "3 h ago", "yesterday, 4:10 PM", "Oct 12, 4:10 PM"
+function formatLastSeen(iso: string | null) {
+  if (!iso) return "never";
+
+  const then = new Date(iso);
+  const diffSec = Math.max(0, Math.floor((Date.now() - then.getTime()) / 1000));
+
+  if (diffSec < 60) return "just now";
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} min ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} h ago`;
+
+  const time = then.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const yesterday = startOfDay(new Date());
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (isSameDay(then, yesterday)) return `yesterday, ${time}`;
+
+  const date = then.toLocaleDateString([], { month: "short", day: "numeric" });
+  return `${date}, ${time}`;
 }
 
 function formatHour(hour: number) {
@@ -208,15 +235,9 @@ function StatTile({
 
 export default function HomeScreen() {
   /*
-   * Placeholder data (replace with your backend/API):
-   * - userName, farmConnection, farmSize
-   *
    * Devices come from Supabase (`devices`), and statistics are computed from
    * the detection logs (same source as the Logs tab).
    */
-
-  const farmConnection = "";
-  const farmSize = "";
 
   /* ----------------------------- Devices data ---------------------------- */
 
@@ -248,12 +269,29 @@ export default function HomeScreen() {
     };
   }, [loadDevices]);
 
-  // UI list: every registered device with Active / Inactive status
-  const devices: Device[] = dbDevices.map((d) => ({
-    id: d.id,
-    name: d.name,
-    status: isRecentlyAlive(d) ? "Active" : "Inactive",
-  }));
+  // UI list: every registered device with Active / Inactive status.
+  // Inactive devices come first (those are the ones maintenance cares about),
+  // then alphabetical within each group.
+  const devices: Device[] = dbDevices
+    .map((d) => ({
+      id: d.id,
+      name: d.name,
+      status: (isRecentlyAlive(d) ? "Active" : "Inactive") as DeviceStatus,
+      lastSeen: d.last_seen,
+    }))
+    .sort((a, b) => {
+      if (a.status !== b.status) return a.status === "Inactive" ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+  const refreshAll = async () => {
+    try {
+      const [logData] = await Promise.all([fetchDetectionLogs(500), loadDevices()]);
+      setLogs(logData);
+    } catch (e) {
+      console.warn("Failed to refresh:", e);
+    }
+  };
 
   /* ------------------------------ Logs data ------------------------------ */
 
@@ -381,54 +419,81 @@ export default function HomeScreen() {
         bounces
       >
         {/* ---------------------------------------------------------------- */}
-        {/* Header (Welcome                                                  */}
+        {/* Header (Welcome + Add Button)                                     */}
         {/* ---------------------------------------------------------------- */}
 
         <View style={styles.header}>
-          <Text style={styles.welcome}>Device Monitoring</Text>
+          <View>
+            <Text style={styles.welcome}>Device Monitoring</Text>
+            <Text style={styles.headerSubtitle}>
+              Admin overview of all devices
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.addBtn}
+            activeOpacity={0.8}
+            onPress={refreshAll}
+          >
+            <Ionicons name="refresh" size={22} color={COLORS.white} />
+          </TouchableOpacity>
         </View>
 
         {/* ---------------------------------------------------------------- */}
-        {/* Connection Card                                                   */}
+        {/* Fleet Overview */}
         {/* ---------------------------------------------------------------- */}
 
-        <View style={styles.connectionCard}>
-          <View style={styles.connectionLeft}>
+        <View style={styles.fleetCard}>
+          <View style={styles.fleetItem}>
             <View style={styles.iconCircle}>
-              <MaterialIcons name="wifi" size={18} color={COLORS.primary} />
+              <Ionicons
+                name="hardware-chip-outline"
+                size={18}
+                color={COLORS.primary}
+              />
             </View>
-
-            <View style={styles.connectionText}>
-              <Text style={styles.connLabel}>Connected to</Text>
-
-              <Text
-                style={[styles.connValue, !farmConnection && styles.emptyValue]}
-              >
-                {farmConnection || "—"}
-              </Text>
-            </View>
+            <Text style={styles.fleetValue}>{devices.length}</Text>
+            <Text style={styles.fleetLabel}>Total Devices</Text>
           </View>
 
           <View style={styles.dividerVert} />
 
-          <View style={styles.connectionRight}>
+          <View style={styles.fleetItem}>
             <View style={styles.iconCircle}>
               <Ionicons
-                name="location-outline"
-                size={17}
+                name="checkmark-circle-outline"
+                size={18}
                 color={COLORS.primary}
               />
             </View>
+            <Text style={styles.fleetValue}>{activeCount}</Text>
+            <Text style={styles.fleetLabel}>Active</Text>
+          </View>
 
-            <View style={styles.connectionText}>
-              <Text style={styles.connLabel}>Farm Size</Text>
+          <View style={styles.dividerVert} />
 
-              <Text
-                style={[styles.connValueLarge, !farmSize && styles.emptyValue]}
-              >
-                {farmSize || "—"}
-              </Text>
+          <View style={styles.fleetItem}>
+            <View
+              style={[
+                styles.iconCircle,
+                inactiveCount > 0 && styles.iconCircleAlert,
+              ]}
+            >
+              <Ionicons
+                name="alert-circle-outline"
+                size={18}
+                color={inactiveCount > 0 ? COLORS.red : COLORS.gray}
+              />
             </View>
+            <Text
+              style={[
+                styles.fleetValue,
+                inactiveCount > 0 ? styles.fleetValueAlert : styles.fleetValueMuted,
+              ]}
+            >
+              {inactiveCount}
+            </Text>
+            <Text style={styles.fleetLabel}>Inactive</Text>
           </View>
         </View>
 
@@ -448,8 +513,8 @@ export default function HomeScreen() {
           {/* Summary counts */}
           {devices.length > 0 && (
             <Text style={styles.deviceSummary}>
-              {devices.length} registered · {activeCount} active ·{" "}
-              {inactiveCount} inactive · tap a device to see its statistics
+              Inactive devices are listed first · tap a device to see its
+              statistics
             </Text>
           )}
 
@@ -502,7 +567,7 @@ export default function HomeScreen() {
                           !isActive && styles.deviceStatusInactive,
                         ]}
                       >
-                        {device.status}
+                        {`Last seen ${formatLastSeen(device.lastSeen)}`}
                       </Text>
                     </View>
                   </View>
@@ -559,15 +624,16 @@ export default function HomeScreen() {
                 <Text style={styles.birdEmoji}>🐦‍⬛</Text>
               </View>
 
-              <Text style={styles.birdBannerText}>
-                <Text style={styles.birdCount}>{birdsToday}</Text> Today
-              </Text>
+              <View>
+                <Text style={styles.birdBannerLabel}>All detections today</Text>
+                <Text style={styles.birdCountLarge}>{birdsToday}</Text>
+              </View>
             </View>
 
-            <Text style={styles.birdBannerTotal}>
-              <Text style={styles.birdCount}>{birdsThisWeek}</Text> Total This
-              Week
-            </Text>
+            <View style={styles.birdBannerRight}>
+              <Text style={styles.birdBannerLabel}>All detections this week</Text>
+              <Text style={styles.birdCountLarge}>{birdsThisWeek}</Text>
+            </View>
           </View>
         </View>
 
@@ -692,6 +758,13 @@ const styles = StyleSheet.create({
     color: COLORS.darkGreen,
   },
 
+  headerSubtitle: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: COLORS.gray,
+    marginTop: 2,
+  },
+
   addBtn: {
     width: 40,
     height: 40,
@@ -703,29 +776,48 @@ const styles = StyleSheet.create({
     borderColor: COLORS.darkGreen,
   },
 
-  /* Connection Card */
-  connectionCard: {
+  /* Fleet Overview */
+  fleetCard: {
     flexDirection: "row",
     backgroundColor: COLORS.white,
     borderRadius: 14,
-    padding: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
     marginBottom: 14,
     borderWidth: 1.5,
     borderColor: COLORS.border,
     alignItems: "center",
   },
 
-  connectionLeft: {
+  fleetItem: {
     flex: 1,
-    flexDirection: "row",
     alignItems: "center",
   },
 
-  connectionRight: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingLeft: 12,
+  fleetValue: {
+    fontSize: 22,
+    fontFamily: "PlusJakartaSans_700Bold",
+    color: COLORS.primary,
+    marginTop: 6,
+  },
+
+  fleetValueAlert: {
+    color: COLORS.red,
+  },
+
+  fleetValueMuted: {
+    color: COLORS.gray,
+  },
+
+  fleetLabel: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: COLORS.gray,
+    marginTop: 1,
+  },
+
+  iconCircleAlert: {
+    backgroundColor: COLORS.lightRed,
   },
 
   iconCircle: {
@@ -737,35 +829,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  connectionText: {
-    marginLeft: 8,
-    flex: 1,
-  },
-
   dividerVert: {
     width: 1,
     height: 36,
     backgroundColor: COLORS.border,
-  },
-
-  connLabel: {
-    fontSize: 15,
-    fontFamily: "PlusJakartaSans_400Regular",
-    color: COLORS.gray,
-  },
-
-  connValue: {
-    fontSize: 18,
-    fontFamily: "PlusJakartaSans_600SemiBold",
-    color: COLORS.darkGreen,
-    marginTop: 2,
-  },
-
-  connValueLarge: {
-    fontSize: 18,
-    fontFamily: "PlusJakartaSans_700Bold",
-    color: COLORS.primary,
-    marginTop: 1,
   },
 
   emptyValue: {
@@ -962,20 +1029,18 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
 
-  birdBannerText: {
-    fontSize: 13,
-    fontFamily: "PlusJakartaSans_400Regular",
-    color: COLORS.darkGreen,
+  birdBannerRight: {
+    alignItems: "flex-end",
   },
 
-  birdBannerTotal: {
+  birdBannerLabel: {
     fontSize: 11,
     fontFamily: "PlusJakartaSans_400Regular",
     color: COLORS.darkGreen,
-    textAlign: "right",
   },
 
-  birdCount: {
+  birdCountLarge: {
+    fontSize: 18,
     fontFamily: "PlusJakartaSans_700Bold",
     color: COLORS.primary,
   },
