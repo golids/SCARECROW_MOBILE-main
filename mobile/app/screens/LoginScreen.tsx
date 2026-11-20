@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from "react";
 import {
   View,
@@ -28,9 +29,11 @@ function friendlyAuthError(message: string) {
   if (m.includes("invalid login credentials")) {
     return "Incorrect username or password.";
   }
+
   if (m.includes("email not confirmed")) {
     return "This account hasn't been confirmed yet. Please contact your administrator.";
   }
+
   return message;
 }
 
@@ -43,11 +46,16 @@ export default function LoginScreen() {
 
   const passwordRef = useRef<TextInput>(null);
   const router = useRouter();
-  const params = useLocalSearchParams<{ username?: string; phone?: string }>();
 
-  // Pre-fill username if coming from signup (still accepts the old `phone` param)
+  const params = useLocalSearchParams<{
+    username?: string;
+    phone?: string;
+  }>();
+
+  // Pre-fill username if coming from an older navigation route.
   useEffect(() => {
     const prefill = params.username ?? params.phone;
+
     if (prefill) {
       setUsername(prefill);
     }
@@ -61,8 +69,7 @@ export default function LoginScreen() {
       return;
     }
 
-    // A full email is also accepted; otherwise only characters that are
-    // valid in the first part of an email address.
+    // Accept either a full email or a username.
     const isEmail = cleanUsername.includes("@");
 
     if (!isEmail && !/^[a-z0-9._-]+$/.test(cleanUsername)) {
@@ -76,7 +83,9 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      const email = isEmail ? cleanUsername : `${cleanUsername}@${EMAIL_DOMAIN}`;
+      const email = isEmail
+        ? cleanUsername
+        : `${cleanUsername}@${EMAIL_DOMAIN}`;
 
       const { error } = await supabase.auth.signInWithPassword({
         email,
@@ -88,7 +97,7 @@ export default function LoginScreen() {
         return;
       }
 
-      // Logged in — go straight to the app
+      // Successful login: navigate to the Home screen.
       router.replace("/(tabs)/Home");
     } catch (error) {
       Alert.alert(
@@ -100,12 +109,8 @@ export default function LoginScreen() {
     }
   };
 
-  const handleSignUp = () => {
-    router.push("/screens/SignupScreen");
-  };
-
-  // Admin-only app: passwords are reset by the administrator / maintenance,
-  // so just show a banner instead of sending a reset email.
+  // Admin-only app: password resets are handled by
+  // the administrator or maintenance team.
   const handleForgotPassword = () => {
     setShowForgotBanner((visible) => !visible);
   };
@@ -119,12 +124,15 @@ export default function LoginScreen() {
       <SafeAreaView style={styles.container}>
         <KeyboardAvoidingView
           style={styles.container}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
         >
           <ScrollView
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
           >
             {/* Logo + App Name + Abbreviation */}
             <View style={styles.brandingContainer}>
@@ -133,19 +141,25 @@ export default function LoginScreen() {
                 style={styles.logo}
                 resizeMode="contain"
               />
+
               <Text style={styles.appName}>
                 SCARE<Text style={styles.appNameBold}>CROW</Text>
               </Text>
-              <Text style={styles.abbrName}>Crop Reliable Operative Warden</Text>
+
+              <Text style={styles.abbrName}>
+                Crop Reliable Operative Warden
+              </Text>
             </View>
 
-            {/* Login card */}
+            {/* Login Card */}
             <View style={styles.loginCard}>
               <Text style={styles.title}>ADMIN PORTAL</Text>
+
               <Text style={styles.subtitle}>
                 Authorized personnel only. Please sign in to continue.
               </Text>
 
+              {/* Username and Password */}
               <View style={styles.inputContainer}>
                 <View style={styles.inputWrapper}>
                   <TextInput
@@ -160,7 +174,9 @@ export default function LoginScreen() {
                     autoComplete="username"
                     textContentType="username"
                     returnKeyType="next"
-                    onSubmitEditing={() => passwordRef.current?.focus()}
+                    onSubmitEditing={() =>
+                      passwordRef.current?.focus()
+                    }
                     blurOnSubmit={false}
                     editable={!loading}
                   />
@@ -183,6 +199,8 @@ export default function LoginScreen() {
                     onSubmitEditing={handleLogin}
                     editable={!loading}
                   />
+
+                  {/* Show / Hide Password */}
                   <TouchableOpacity
                     style={styles.eyeIcon}
                     onPress={() => setShowPassword(!showPassword)}
@@ -190,7 +208,11 @@ export default function LoginScreen() {
                     activeOpacity={0.7}
                   >
                     <Ionicons
-                      name={showPassword ? "eye-off-outline" : "eye-outline"}
+                      name={
+                        showPassword
+                          ? "eye-off-outline"
+                          : "eye-outline"
+                      }
                       size={22}
                       color="#4F8F3A"
                     />
@@ -198,17 +220,23 @@ export default function LoginScreen() {
                 </View>
               </View>
 
+              {/* Forgot Password */}
               <TouchableOpacity
                 style={styles.forgotContainer}
                 onPress={handleForgotPassword}
                 disabled={loading}
               >
-                <Text style={styles.forgotText}>Forgot Password?</Text>
+                <Text style={styles.forgotText}>
+                  Forgot Password?
+                </Text>
               </TouchableOpacity>
 
-              {/* Forgot password banner */}
+              {/* Forgot Password Information Banner */}
               {showForgotBanner && (
-                <View style={styles.banner} accessibilityLiveRegion="polite">
+                <View
+                  style={styles.banner}
+                  accessibilityLiveRegion="polite"
+                >
                   <Ionicons
                     name="information-circle"
                     size={22}
@@ -218,39 +246,55 @@ export default function LoginScreen() {
 
                   <Text style={styles.bannerText}>
                     Please contact your{" "}
-                    <Text style={styles.bannerBold}>Administrator</Text> or the{" "}
-                    <Text style={styles.bannerBold}>Maintenance team</Text> to have
-                    your password reset.
+                    <Text style={styles.bannerBold}>
+                      Administrator
+                    </Text>{" "}
+                    or the{" "}
+                    <Text style={styles.bannerBold}>
+                      Maintenance team
+                    </Text>{" "}
+                    to have your password reset.
                   </Text>
 
                   <TouchableOpacity
                     onPress={() => setShowForgotBanner(false)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    hitSlop={{
+                      top: 10,
+                      bottom: 10,
+                      left: 10,
+                      right: 10,
+                    }}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="close" size={18} color="#123B25" />
+                    <Ionicons
+                      name="close"
+                      size={18}
+                      color="#123B25"
+                    />
                   </TouchableOpacity>
                 </View>
               )}
 
+              {/* Login Button */}
               <TouchableOpacity
-                style={[styles.loginButton, loading && styles.loginButtonDisabled]}
+                style={[
+                  styles.loginButton,
+                  loading && styles.loginButtonDisabled,
+                ]}
                 onPress={handleLogin}
                 disabled={loading}
               >
                 {loading ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
+                  <ActivityIndicator
+                    color="#FFFFFF"
+                    size="small"
+                  />
                 ) : (
-                  <Text style={styles.loginButtonText}>LOG IN</Text>
+                  <Text style={styles.loginButtonText}>
+                    LOG IN
+                  </Text>
                 )}
               </TouchableOpacity>
-
-              <View style={styles.signUpContainer}>
-                <Text style={styles.signUpText}>Don't have account? </Text>
-                <TouchableOpacity onPress={handleSignUp} disabled={loading}>
-                  <Text style={styles.signUpLink}>Sign Up</Text>
-                </TouchableOpacity>
-              </View>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -265,24 +309,30 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+
   container: {
     flex: 1,
   },
+
   content: {
     flexGrow: 1,
     paddingHorizontal: 24,
     justifyContent: "center",
+    paddingVertical: 20,
   },
+
   brandingContainer: {
     alignItems: "center",
     marginTop: 15,
     marginBottom: 30,
   },
+
   logo: {
     width: 300,
     height: 300,
     marginBottom: 12,
   },
+
   appName: {
     fontFamily: "PlusJakartaSans_400Regular",
     fontSize: 50,
@@ -290,10 +340,12 @@ const styles = StyleSheet.create({
     color: "#004E00",
     textAlign: "center",
   },
+
   appNameBold: {
     fontFamily: "PlusJakartaSans_700Bold",
     fontWeight: "700",
   },
+
   abbrName: {
     fontFamily: "PlusJakartaSans_400Regular",
     fontSize: 20,
@@ -303,6 +355,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     opacity: 0.85,
   },
+
   loginCard: {
     backgroundColor: "rgba(232, 240, 184, 0.35)",
     borderRadius: 24,
@@ -312,6 +365,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.4)",
   },
+
   title: {
     fontSize: 25,
     fontFamily: "PlusJakartaSans_700Bold",
@@ -319,6 +373,7 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     textAlign: "center",
   },
+
   subtitle: {
     fontSize: 15,
     fontFamily: "PlusJakartaSans_400Regular",
@@ -328,9 +383,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     lineHeight: 30,
   },
+
   inputContainer: {
     marginBottom: 16,
   },
+
   inputWrapper: {
     backgroundColor: "rgba(255, 255, 255, 0.35)",
     borderRadius: 10,
@@ -343,6 +400,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+
   input: {
     flex: 1,
     paddingHorizontal: 15,
@@ -351,22 +409,26 @@ const styles = StyleSheet.create({
     fontFamily: "PlusJakartaSans_400Regular",
     color: "#000000",
   },
+
   eyeIcon: {
     paddingHorizontal: 12,
     paddingVertical: 10,
     backgroundColor: "transparent",
   },
+
   forgotContainer: {
     alignItems: "flex-end",
     marginTop: -10,
     right: 12,
     marginBottom: 20,
   },
+
   forgotText: {
-    color: "#4F8F3A",
+    color: "#123B25",
     fontSize: 15,
     fontFamily: "PlusJakartaSans_500Medium",
   },
+
   banner: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -381,9 +443,11 @@ const styles = StyleSheet.create({
     marginTop: -8,
     marginBottom: 30,
   },
+
   bannerIcon: {
     marginTop: 1,
   },
+
   bannerText: {
     flex: 1,
     fontSize: 13,
@@ -391,9 +455,11 @@ const styles = StyleSheet.create({
     fontFamily: "PlusJakartaSans_400Regular",
     color: "#123B25",
   },
+
   bannerBold: {
     fontFamily: "PlusJakartaSans_600SemiBold",
   },
+
   loginButton: {
     backgroundColor: "#4F8F3A",
     borderRadius: 18,
@@ -408,28 +474,15 @@ const styles = StyleSheet.create({
     borderColor: "#123B25",
     justifyContent: "center",
   },
+
   loginButtonDisabled: {
     opacity: 0.7,
   },
+
   loginButtonText: {
     color: "#FFFFFF",
     fontSize: 20,
     fontFamily: "PlusJakartaSans_600SemiBold",
     letterSpacing: 0.5,
-  },
-  signUpContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginBottom: 12,
-  },
-  signUpText: {
-    color: "#000000",
-    fontSize: 15,
-    fontFamily: "PlusJakartaSans_400Regular",
-  },
-  signUpLink: {
-    color: "#30ac07",
-    fontSize: 15,
-    fontFamily: "PlusJakartaSans_600SemiBold",
   },
 });

@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -52,11 +53,11 @@ type Device = {
   lastSeen: string | null; // ISO timestamp from devices.last_seen
 };
 
+type RangePreset = "7d" | "30d" | "all" | "custom";
+
 /* -------------------------------------------------------------------------- */
 /*                                  HELPERS                                   */
 /* -------------------------------------------------------------------------- */
-
-
 
 function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -64,6 +65,20 @@ function startOfDay(d: Date) {
 
 function isSameDay(a: Date, b: Date) {
   return startOfDay(a).getTime() === startOfDay(b).getTime();
+}
+
+function addDays(d: Date, n: number) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+}
+
+function formatDate(d: Date) {
+  return d.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 // "just now", "5 min ago", "3 h ago", "yesterday, 4:10 PM", "Oct 12, 4:10 PM"
@@ -230,10 +245,186 @@ function StatTile({
 }
 
 /* -------------------------------------------------------------------------- */
+/*                         DATE RANGE CALENDAR MODAL                          */
+/* -------------------------------------------------------------------------- */
+
+const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+
+function RangeCalendarModal({
+  visible,
+  initialStart,
+  initialEnd,
+  onApply,
+  onClose,
+}: {
+  visible: boolean;
+  initialStart: Date;
+  initialEnd: Date;
+  onApply: (start: Date, end: Date) => void;
+  onClose: () => void;
+}) {
+  const [month, setMonth] = React.useState(startOfDay(initialEnd));
+  const [start, setStart] = React.useState<Date | null>(null);
+  const [end, setEnd] = React.useState<Date | null>(null);
+
+  React.useEffect(() => {
+    if (visible) {
+      setStart(startOfDay(initialStart));
+      setEnd(startOfDay(initialEnd));
+      setMonth(startOfDay(initialEnd));
+    }
+  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const today = startOfDay(new Date());
+  const year = month.getFullYear();
+  const m = month.getMonth();
+  const firstWeekday = new Date(year, m, 1).getDay();
+  const daysInMonth = new Date(year, m + 1, 0).getDate();
+
+  const cells: (Date | null)[] = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, m, d));
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const rows: (Date | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
+
+  const isCurrentMonth =
+    year === today.getFullYear() && m === today.getMonth();
+
+  const pickDay = (day: Date) => {
+    if (!start || (start && end)) {
+      // first tap (or starting over)
+      setStart(day);
+      setEnd(null);
+    } else if (day < start) {
+      setEnd(start);
+      setStart(day);
+    } else {
+      setEnd(day);
+    }
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Select date range</Text>
+          <Text style={styles.modalHint}>
+            {start
+              ? `${formatDate(start)}${
+                  end ? ` – ${formatDate(end)}` : " – tap an end date"
+                }`
+              : "Tap a start date"}
+          </Text>
+
+          {/* Month navigation */}
+          <View style={styles.calHeader}>
+            <TouchableOpacity
+              style={styles.calNavBtn}
+              onPress={() => setMonth(new Date(year, m - 1, 1))}
+            >
+              <Ionicons name="chevron-back" size={18} color={COLORS.primary} />
+            </TouchableOpacity>
+
+            <Text style={styles.calTitle}>
+              {month.toLocaleDateString([], { month: "long", year: "numeric" })}
+            </Text>
+
+            <TouchableOpacity
+              style={[styles.calNavBtn, isCurrentMonth && { opacity: 0.3 }]}
+              disabled={isCurrentMonth}
+              onPress={() => setMonth(new Date(year, m + 1, 1))}
+            >
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={COLORS.primary}
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Weekday labels */}
+          <View style={styles.calRow}>
+            {WEEKDAYS.map((w, i) => (
+              <Text key={i} style={styles.calWeekday}>
+                {w}
+              </Text>
+            ))}
+          </View>
+
+          {/* Days */}
+          {rows.map((row, ri) => (
+            <View key={ri} style={styles.calRow}>
+              {row.map((day, ci) => {
+                if (!day) return <View key={ci} style={styles.calCell} />;
+
+                const future = day > today;
+                const isEdge =
+                  (start && isSameDay(day, start)) ||
+                  (end && isSameDay(day, end));
+                const inRange =
+                  start && end && day >= start && day <= end && !isEdge;
+
+                return (
+                  <TouchableOpacity
+                    key={ci}
+                    style={[
+                      styles.calCell,
+                      inRange && styles.calCellInRange,
+                      isEdge && styles.calCellEdge,
+                      future && { opacity: 0.25 },
+                    ]}
+                    disabled={future}
+                    activeOpacity={0.7}
+                    onPress={() => pickDay(day)}
+                  >
+                    <Text
+                      style={[
+                        styles.calDayText,
+                        isEdge && styles.calDayTextEdge,
+                      ]}
+                    >
+                      {day.getDate()}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ))}
+
+          {/* Buttons */}
+          <View style={styles.modalActions}>
+            <TouchableOpacity style={styles.modalCancel} onPress={onClose}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.modalApply, !start && { opacity: 0.4 }]}
+              disabled={!start}
+              onPress={() => start && onApply(start, end ?? start)}
+            >
+              <Text style={styles.modalApplyText}>Apply</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*                              HOME SCREEN                                   */
 /* -------------------------------------------------------------------------- */
 
 export default function HomeScreen() {
+  const router = useRouter();
+
   /*
    * Devices come from Supabase (`devices`), and statistics are computed from
    * the detection logs (same source as the Logs tab).
@@ -300,6 +491,14 @@ export default function HomeScreen() {
     string | null
   >(null);
 
+  // Statistics date filter
+  const [preset, setPreset] = React.useState<RangePreset>("7d");
+  const [customRange, setCustomRange] = React.useState<{
+    start: Date;
+    end: Date;
+  } | null>(null);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+
   React.useEffect(() => {
     let mounted = true;
 
@@ -345,15 +544,43 @@ export default function HomeScreen() {
   const stats = React.useMemo(() => {
     if (!selectedDevice) return null;
 
-    // Match on device_id (reliable even if two devices share a name)
-    const deviceLogs = logs.filter((l) => l.device_id === selectedDevice.id);
+    const todayStart = startOfDay(new Date());
+    const allDeviceLogs = logs.filter((l) => l.device_id === selectedDevice.id);
+
+    // ---- Date range ----
+    let rangeStart: Date;
+    let rangeEnd: Date = todayStart;
+
+    if (preset === "custom" && customRange) {
+      rangeStart = startOfDay(customRange.start);
+      rangeEnd = startOfDay(customRange.end);
+    } else if (preset === "30d") {
+      rangeStart = addDays(todayStart, -29);
+    } else if (preset === "all") {
+      const times = allDeviceLogs.map((l) => new Date(l.created_at).getTime());
+      rangeStart = times.length
+        ? startOfDay(new Date(Math.min(...times)))
+        : todayStart;
+    } else {
+      rangeStart = addDays(todayStart, -6);
+    }
+
+    const rangeEndExclusive = addDays(rangeEnd, 1);
+    const inRange = (l: DetectionLog) => {
+      const t = new Date(l.created_at);
+      return t >= rangeStart && t < rangeEndExclusive;
+    };
+
+    // ---- Filtered logs ----
+    const deviceLogs = allDeviceLogs.filter(inRange);
     const birdLogs = deviceLogs.filter((l) => l.event_type === "bird_detected");
     const offlineLogs = deviceLogs.filter((l) => l.event_type === "offline");
 
-    const today = new Date();
-
-    const detectedToday = birdLogs.filter((l) =>
-      isSameDay(new Date(l.created_at), today)
+    // "Detected Today" always means today, regardless of the filter
+    const detectedToday = allDeviceLogs.filter(
+      (l) =>
+        l.event_type === "bird_detected" &&
+        isSameDay(new Date(l.created_at), todayStart)
     ).length;
 
     // Average detections per day (over the days that have any events)
@@ -380,17 +607,31 @@ export default function HomeScreen() {
       }
     });
 
-    // Last 7 days (oldest -> today)
-    const weekly: { day: string; count: number }[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const day = startOfDay(today);
-      day.setDate(day.getDate() - i);
+    // ---- Chart bars: daily up to 14 days, otherwise grouped (max 8 bars) ----
+    const totalDays =
+      Math.round((rangeEnd.getTime() - rangeStart.getTime()) / 86400000) + 1;
+    const bucketSize = totalDays <= 14 ? 1 : Math.ceil(totalDays / 8);
 
-      weekly.push({
-        day: day.toLocaleDateString([], { weekday: "short" }),
-        count: birdLogs.filter((l) => isSameDay(new Date(l.created_at), day))
-          .length,
-      });
+    const weekly: { day: string; count: number }[] = [];
+    for (let i = 0; i < totalDays; i += bucketSize) {
+      const bStart = addDays(rangeStart, i);
+      const bEnd = addDays(rangeStart, Math.min(i + bucketSize, totalDays));
+
+      const count = birdLogs.filter((l) => {
+        const t = new Date(l.created_at);
+        return t >= bStart && t < bEnd;
+      }).length;
+
+      let label: string;
+      if (bucketSize > 1) {
+        label = bStart.toLocaleDateString([], { month: "short", day: "numeric" });
+      } else if (totalDays <= 7) {
+        label = bStart.toLocaleDateString([], { weekday: "short" });
+      } else {
+        label = String(bStart.getDate());
+      }
+
+      weekly.push({ day: label, count });
     }
 
     return {
@@ -401,8 +642,11 @@ export default function HomeScreen() {
       avgPerDay,
       peakTime: peakHour >= 0 ? formatHour(peakHour) : "",
       weekly,
+      bucketSize,
+      rangeStart,
+      rangeEnd,
     };
-  }, [logs, selectedDevice]);
+  }, [logs, selectedDevice, preset, customRange]);
 
   const activeCount = devices.filter((d) => d.status === "Active").length;
   const inactiveCount = devices.length - activeCount;
@@ -505,7 +749,15 @@ export default function HomeScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Device List</Text>
 
-            <TouchableOpacity activeOpacity={0.7}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() =>
+                router.push({
+                  pathname: "/settings",
+                  params: { section: "devices", t: String(Date.now()) },
+                } as any)
+              }
+            >
               <Text style={styles.sectionLink}>Manage &gt;</Text>
             </TouchableOpacity>
           </View>
@@ -651,6 +903,60 @@ export default function HomeScreen() {
               </Text>
             </View>
 
+            {/* Date range filter */}
+            <View style={styles.filterRow}>
+              {(
+                [
+                  ["7d", "Last 7 days"],
+                  ["30d", "Last 30 days"],
+                  ["all", "All time"],
+                ] as [RangePreset, string][]
+              ).map(([key, label]) => (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.chip, preset === key && styles.chipActive]}
+                  activeOpacity={0.8}
+                  onPress={() => setPreset(key)}
+                >
+                  <Text
+                    style={[
+                      styles.chipText,
+                      preset === key && styles.chipTextActive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+
+              <TouchableOpacity
+                style={[styles.chip, preset === "custom" && styles.chipActive]}
+                activeOpacity={0.8}
+                onPress={() => setPickerOpen(true)}
+              >
+                <Ionicons
+                  name="calendar-outline"
+                  size={13}
+                  color={preset === "custom" ? COLORS.white : COLORS.primary}
+                />
+                <Text
+                  style={[
+                    styles.chipText,
+                    preset === "custom" && styles.chipTextActive,
+                  ]}
+                >
+                  Custom
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.rangeSummary}>
+              Showing {formatDate(stats.rangeStart)}
+              {isSameDay(stats.rangeStart, stats.rangeEnd)
+                ? ""
+                : ` – ${formatDate(stats.rangeEnd)}`}
+            </Text>
+
             {/* Stat tiles */}
             <View style={styles.statGrid}>
               <StatTile
@@ -685,9 +991,13 @@ export default function HomeScreen() {
               />
             </View>
 
-            {/* Weekly chart */}
+            {/* Chart */}
             <View style={styles.chartCard}>
-              <Text style={styles.chartTitle}>Bird Detections This Week</Text>
+              <Text style={styles.chartTitle}>
+                {stats.bucketSize > 1
+                  ? `Bird Detections (every ${stats.bucketSize} days)`
+                  : "Bird Detections per Day"}
+              </Text>
 
               <View style={styles.chartRow}>
                 {stats.weekly.map((item, index) => {
@@ -719,6 +1029,21 @@ export default function HomeScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Date range picker */}
+      {selectedDevice && stats && (
+        <RangeCalendarModal
+          visible={pickerOpen}
+          initialStart={stats.rangeStart}
+          initialEnd={stats.rangeEnd}
+          onClose={() => setPickerOpen(false)}
+          onApply={(s, e) => {
+            setCustomRange({ start: s, end: e });
+            setPreset("custom");
+            setPickerOpen(false);
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -1064,6 +1389,174 @@ const styles = StyleSheet.create({
     color: COLORS.gray,
     marginTop: 6,
     textAlign: "center",
+  },
+
+  /* Date filter */
+  filterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 8,
+  },
+
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.white,
+  },
+
+  chipActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+
+  chipText: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: COLORS.primary,
+  },
+
+  chipTextActive: {
+    color: COLORS.white,
+  },
+
+  rangeSummary: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: COLORS.gray,
+    marginBottom: 12,
+  },
+
+  /* Calendar modal */
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+
+  modalCard: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    padding: 16,
+  },
+
+  modalTitle: {
+    fontSize: 18,
+    fontFamily: "PlusJakartaSans_700Bold",
+    color: COLORS.darkGreen,
+  },
+
+  modalHint: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: COLORS.gray,
+    marginTop: 2,
+    marginBottom: 12,
+  },
+
+  calHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+
+  calNavBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.veryLightGreen,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  calTitle: {
+    fontSize: 15,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    color: COLORS.darkGreen,
+  },
+
+  calRow: {
+    flexDirection: "row",
+  },
+
+  calWeekday: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 11,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    color: COLORS.gray,
+    paddingVertical: 4,
+  },
+
+  calCell: {
+    flex: 1,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  calCellInRange: {
+    backgroundColor: COLORS.lightGreen,
+  },
+
+  calCellEdge: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 19,
+  },
+
+  calDayText: {
+    fontSize: 13,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: COLORS.darkGreen,
+  },
+
+  calDayTextEdge: {
+    color: COLORS.white,
+  },
+
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 14,
+  },
+
+  modalCancel: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+
+  modalCancelText: {
+    fontSize: 13,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    color: COLORS.gray,
+  },
+
+  modalApply: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: COLORS.primary,
+  },
+
+  modalApplyText: {
+    fontSize: 13,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    color: COLORS.white,
   },
 
   /* Statistics */

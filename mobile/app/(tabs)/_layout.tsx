@@ -1,93 +1,131 @@
+// app/(tabs)/_layout.tsx
 import { Tabs } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import {
   View,
   StyleSheet,
   Platform,
   TouchableWithoutFeedback,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+
+const HEADER_GREEN = "#4F8F3A"; // palette: primary / main color
+
+// Solid green strip behind the phone's status bar (time, battery, Wi-Fi).
+// On web the inset is 0, so nothing is drawn.
+function StatusBarHeader() {
+  const insets = useSafeAreaInsets();
+  if (insets.top <= 0) return null;
+
+  return (
+    <View
+      pointerEvents="none"
+      style={[styles.statusBarBg, { height: insets.top }]}
+    />
+  );
+}
 
 export default function TabsLayout() {
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: styles.tabBar,
-        tabBarItemStyle: styles.tabBarItem,
-        tabBarBackground: () => <View style={styles.tabBarBackground} />,
-        tabBarActiveTintColor: "#4F8F3A",
-        tabBarInactiveTintColor: "#808080",
-        tabBarShowLabel: true,
-        tabBarLabelStyle: styles.tabBarLabel,
-        tabBarActiveBackgroundColor: "transparent",
-        tabBarInactiveBackgroundColor: "transparent",
-        // Remove ripple / press feedback (tap indicator)
-        tabBarButton: (props) => (
-          <TouchableWithoutFeedback
-            onPress={props.onPress ?? undefined}
-            onLongPress={props.onLongPress ?? undefined}
-            delayLongPress={props.delayLongPress ?? undefined}
-            accessibilityRole={props.accessibilityRole}
-            accessibilityState={props.accessibilityState}
-            accessibilityLabel={props.accessibilityLabel}
-            testID={props.testID}
-          >
-            <View style={props.style}>{props.children}</View>
-          </TouchableWithoutFeedback>
-        ),
-      }}
-    >
-      <Tabs.Screen
-        name="Home"
-        options={{
-          title: "Home",
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "home" : "home-outline"}
-              size={22}
-              color={color}
-            />
+    <View style={styles.root}>
+      {/* "light" = white time/battery/Wi-Fi icons, visible on the green bar.
+          Only active while the tabs are open, so the login screen is unaffected. */}
+      <StatusBar style="light" />
+
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: styles.tabBar,
+          tabBarItemStyle: styles.tabBarItem,
+          tabBarBackground: () => <View style={styles.tabBarBackground} />,
+          tabBarActiveTintColor: "#4F8F3A",
+          tabBarInactiveTintColor: "#808080",
+          tabBarShowLabel: true,
+          tabBarLabelStyle: styles.tabBarLabel,
+          tabBarActiveBackgroundColor: "transparent",
+          tabBarInactiveBackgroundColor: "transparent",
+          // Remove ripple / press feedback (tap indicator)
+          tabBarButton: (props) => (
+            <TouchableWithoutFeedback
+              onPress={props.onPress ?? undefined}
+              onLongPress={props.onLongPress ?? undefined}
+              delayLongPress={props.delayLongPress ?? undefined}
+              accessibilityRole={props.accessibilityRole}
+              accessibilityState={props.accessibilityState}
+              accessibilityLabel={props.accessibilityLabel}
+              testID={props.testID}
+            >
+              <View style={props.style}>{props.children}</View>
+            </TouchableWithoutFeedback>
           ),
         }}
-      />
-      <Tabs.Screen
-        name="logs"
-        options={{
-          title: "Logs",
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "document-text" : "document-text-outline"}
-              size={22}
-              color={color}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: "Settings",
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "settings" : "settings-outline"}
-              size={22}
-              color={color}
-            />
-          ),
-        }}
-      />
-    </Tabs>
+      >
+        <Tabs.Screen
+          name="Home"
+          options={{
+            title: "Home",
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons
+                name={focused ? "home" : "home-outline"}
+                size={22}
+                color={color}
+              />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="logs"
+          options={{
+            title: "Logs",
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons
+                name={focused ? "document-text" : "document-text-outline"}
+                size={22}
+                color={color}
+              />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="settings"
+          options={{
+            title: "Settings",
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons
+                name={focused ? "settings" : "settings-outline"}
+                size={22}
+                color={color}
+              />
+            ),
+          }}
+        />
+      </Tabs>
+
+      <StatusBarHeader />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+  statusBarBg: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: HEADER_GREEN,
+    zIndex: 999,
+  },
   tabBar: {
     position: "absolute",
     bottom: 20,
-    marginHorizontal: 20,   // adjust this to move/resize the bar equally on both sides
+    marginHorizontal: 20, // adjust this to move/resize the bar equally on both sides
     height: 64,
     paddingTop: 0,
-    paddingBottom: 0,       // removes the safe-area padding that pushes content up
+    paddingBottom: 0, // removes the safe-area padding that pushes content up
     paddingHorizontal: 0,
     borderRadius: 20,
     backgroundColor: "transparent",

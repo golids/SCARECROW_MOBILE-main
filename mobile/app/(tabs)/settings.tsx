@@ -14,10 +14,9 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
 
 const COLORS = {
@@ -58,6 +57,8 @@ type Device = {
   port: number | null;
   status: "online" | "offline";
   last_seen?: string | null;
+  is_locked: boolean;
+  is_archived: boolean;
 };
 
 type DeviceForm = {
@@ -67,6 +68,8 @@ type DeviceForm = {
   port: string;
   status: "online" | "offline";
 };
+
+type DeviceOperation = "create" | "edit" | "archive";
 
 const ALERT_PREFERENCES: {
   key: AlertKey;
@@ -106,6 +109,18 @@ const ALERT_PREFERENCES: {
   },
 ];
 
+const ALERT_DATABASE_COLUMNS: Record<AlertKey, string> = {
+  deviceDisconnection: "device_disconnection",
+  deviceErrors: "device_errors",
+  lowBattery: "low_battery",
+  deviceRecovery: "device_recovery",
+  birdDetection: "bird_detection",
+};
+
+// Field Scarecrow #1 is protected from archiving.
+const PROTECTED_DEVICE_ID =
+  "3c4e8cb6-8d71-4e8f-b00d-4cf833949d3d";
+
 const EMPTY_FORM: DeviceForm = {
   name: "",
   location: "",
@@ -115,9 +130,16 @@ const EMPTY_FORM: DeviceForm = {
 };
 
 export default function SettingsScreen() {
-  const { section } = useLocalSearchParams<{ section?: string }>();
-  
+  const { section, t } = useLocalSearchParams<{
+    section?: string;
+    t?: string;
+  }>();
+
   const router = useRouter();
+
+  const scrollRef = React.useRef<ScrollView>(null);
+  const deviceSectionY = React.useRef(0);
+  const handledNav = React.useRef("");
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -139,10 +161,28 @@ export default function SettingsScreen() {
     birdDetection: false,
   });
 
+  const [preferencesSaving, setPreferencesSaving] =
+    React.useState<AlertKey | null>(null);
+
+  // Add/Edit device modal
   const [modalVisible, setModalVisible] = React.useState(false);
   const [previewVisible, setPreviewVisible] = React.useState(false);
-  const [editingDevice, setEditingDevice] = React.useState<Device | null>(null);
+  const [editingDevice, setEditingDevice] =
+    React.useState<Device | null>(null);
   const [form, setForm] = React.useState<DeviceForm>(EMPTY_FORM);
+
+  // Administrator verification modal
+  const [passwordModalVisible, setPasswordModalVisible] =
+    React.useState(false);
+  const [adminPassword, setAdminPassword] = React.useState("");
+
+  const [pendingOperation, setPendingOperation] =
+    React.useState<DeviceOperation | null>(null);
+  const [pendingDeviceId, setPendingDeviceId] =
+    React.useState<string | null>(null);
+  const [pendingPayload, setPendingPayload] =
+    React.useState<Record<string, unknown> | null>(null);
+  const [pendingDeviceName, setPendingDeviceName] = React.useState("");
 
   /* ---------------------------- Load Supabase ---------------------------- */
 
@@ -163,7 +203,11 @@ export default function SettingsScreen() {
         return;
       }
 
-      const [profileResult, devicesResult] = await Promise.all([
+      const [
+        profileResult,
+        devicesResult,
+        preferencesResult,
+      ] = await Promise.all([
         supabase
           .from("profiles")
           .select(
@@ -174,15 +218,38 @@ export default function SettingsScreen() {
 
         supabase
           .from("devices")
-          .select("id, name, location, ip_address, port, status, last_seen")
+          .select(
+            "id, name, location, ip_address, port, status, last_seen, is_locked, is_archived"
+          )
+          .eq("is_archived", false)
           .order("name", { ascending: true }),
+
+        supabase
+          .from("notification_preferences")
+          .select(
+            "device_disconnection, device_errors, low_battery, device_recovery, bird_detection"
+          )
+          .eq("user_id", user.id)
+          .maybeSingle(),
       ]);
 
       if (profileResult.error) throw profileResult.error;
       if (devicesResult.error) throw devicesResult.error;
+      if (preferencesResult.error) throw preferencesResult.error;
 
       setProfile(profileResult.data as Profile | null);
       setDevices((devicesResult.data ?? []) as Device[]);
+
+      if (preferencesResult.data) {
+        setAlertSettings({
+          deviceDisconnection:
+            preferencesResult.data.device_disconnection,
+          deviceErrors: preferencesResult.data.device_errors,
+          lowBattery: preferencesResult.data.low_battery,
+          deviceRecovery: preferencesResult.data.device_recovery,
+          birdDetection: preferencesResult.data.bird_detection,
+        });
+      }
     } catch (error: any) {
       Alert.alert(
         "Unable to Load Settings",
@@ -205,13 +272,81 @@ export default function SettingsScreen() {
     return () => subscription.unsubscribe();
   }, [loadData]);
 
-  /* ------------------------- Notification Toggles ------------------------ */
+  /* ------------------ Focus Device Management from Home ----------------- */
 
-  const toggleAlert = (key: AlertKey, value: boolean) => {
+  React.useEffect(() => {
+    if (loading || section !== "devices") return;
+
+    const navKey = `${section}-${t ?? ""}`;
+
+    if (handledNav.current === navKey) return;
+
+    handledNav.current = navKey;
+
+    setAccountOpen(false);
+    setNotificationsOpen(false);
+    setDeviceConfigOpen(true);
+
+    const timer = setTimeout(() => {
+      scrollRef.current?.scrollTo({
+        y: Math.max(deviceSectionY.current - 20, 0),
+        animated: true,
+      });
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [section, t, loading]);
+
+  /* ------------------------- Notification Preferences -------------------- */
+
+  const toggleAlert = async (key: AlertKey, value: boolean) => {
+    if (preferencesSaving) return;
+
+    const previousValue = alertSettings[key];
+
     setAlertSettings((current) => ({
       ...current,
       [key]: value,
     }));
+
+    setPreferencesSaving(key);
+
+    try {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError) throw authError;
+      if (!user) throw new Error("Please log in again.");
+
+      const column = ALERT_DATABASE_COLUMNS[key];
+
+      const { error } = await supabase
+        .from("notification_preferences")
+        .upsert(
+          {
+            user_id: user.id,
+            [column]: value,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" }
+        );
+
+      if (error) throw error;
+    } catch (error: any) {
+      setAlertSettings((current) => ({
+        ...current,
+        [key]: previousValue,
+      }));
+
+      Alert.alert(
+        "Notification Update Failed",
+        error?.message || "Could not save this preference."
+      );
+    } finally {
+      setPreferencesSaving(null);
+    }
   };
 
   /* --------------------------- Device Management ------------------------- */
@@ -225,6 +360,7 @@ export default function SettingsScreen() {
 
   const openEditDevice = (device: Device) => {
     setEditingDevice(device);
+
     setForm({
       name: device.name ?? "",
       location: device.location ?? "",
@@ -232,6 +368,7 @@ export default function SettingsScreen() {
       port: device.port == null ? "" : String(device.port),
       status: device.status === "online" ? "online" : "offline",
     });
+
     setPreviewVisible(false);
     setModalVisible(true);
   };
@@ -239,6 +376,14 @@ export default function SettingsScreen() {
   const validateForm = () => {
     if (!form.name.trim()) {
       Alert.alert("Device Name Required", "Enter a name for this device.");
+      return false;
+    }
+
+    if (!form.location.trim()) {
+      Alert.alert(
+        "Field Location Required",
+        "Please enter the device's field location."
+      );
       return false;
     }
 
@@ -260,9 +405,90 @@ export default function SettingsScreen() {
     setPreviewVisible(true);
   };
 
-  const saveDevice = async () => {
+  const requestDeviceOperation = (
+    operation: "create" | "edit",
+    deviceId: string | null,
+    payload: Record<string, unknown>
+  ) => {
+    setPendingOperation(operation);
+    setPendingDeviceId(deviceId);
+    setPendingPayload(payload);
+    setPendingDeviceName(form.name.trim());
+    setAdminPassword("");
+    setPasswordModalVisible(true);
+  };
+
+  const saveDevice = () => {
     if (!validateForm()) {
       setPreviewVisible(false);
+      return;
+    }
+
+    const payload = {
+      name: form.name.trim(),
+      location: form.location.trim(),
+      ip_address: form.ip_address.trim() || null,
+      port: form.port.trim() ? Number(form.port) : 5000,
+      status: form.status,
+    };
+
+    requestDeviceOperation(
+      editingDevice ? "edit" : "create",
+      editingDevice?.id ?? null,
+      payload
+    );
+  };
+
+  const requestArchiveDevice = (device: Device) => {
+    if (device.id === PROTECTED_DEVICE_ID) {
+      Alert.alert(
+        "Protected Device",
+        "Field Scarecrow #1 is your primary field device and cannot be archived."
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Archive Device?",
+      `You selected "${device.name}". Archiving will remove it from the active device list, but its detection history will be preserved.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Continue",
+          onPress: () => {
+            Alert.alert(
+              "Final Confirmation",
+              `Are you sure you want to archive "${device.name}"?`,
+              [
+                { text: "Keep Device", style: "cancel" },
+                {
+                  text: "Archive Device",
+                  style: "destructive",
+                  onPress: () => {
+                    setPendingOperation("archive");
+                    setPendingDeviceId(device.id);
+                    setPendingPayload({});
+                    setPendingDeviceName(device.name);
+                    setAdminPassword("");
+                    setPasswordModalVisible(true);
+                  },
+                },
+              ]
+            );
+          },
+        },
+      ]
+    );
+  };
+
+  const executeDeviceOperation = async () => {
+    if (!pendingOperation) return;
+
+    if (!adminPassword.trim()) {
+      Alert.alert(
+        "Password Required",
+        "Enter your administrator password to continue."
+      );
       return;
     }
 
@@ -270,35 +496,60 @@ export default function SettingsScreen() {
 
     try {
       const {
-        data: { user },
+        data: { session },
         error: authError,
-      } = await supabase.auth.getUser();
+      } = await supabase.auth.getSession();
 
       if (authError) throw authError;
-      if (!user) throw new Error("Please log in again.");
 
-      const payload = {
-        name: form.name.trim(),
-        location: form.location.trim() || null,
-        ip_address: form.ip_address.trim() || null,
-        port: form.port.trim() ? Number(form.port) : null,
-        status: form.status,
-      };
-
-      if (editingDevice) {
-        const { error } = await supabase
-          .from("devices")
-          .update(payload)
-          .eq("id", editingDevice.id);
-
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from("devices")
-          .insert(payload);
-
-        if (error) throw error;
+      if (!session) {
+        throw new Error("Your session has expired. Please log in again.");
       }
+
+      const { data, error } = await supabase.functions.invoke(
+        "manage-device",
+        {
+          body: {
+            password: adminPassword,
+            operation: pendingOperation,
+            deviceId: pendingDeviceId,
+            payload: pendingPayload ?? {},
+          },
+        }
+      );
+
+      if (error) {
+        let message = error.message;
+
+        try {
+          const response = (error as any).context;
+
+          if (response && typeof response.json === "function") {
+            const body = await response.json();
+            message = body?.error || message;
+          }
+        } catch {
+          // Use the original function error message.
+        }
+
+        throw new Error(message);
+      }
+
+      if (!data?.success) {
+        throw new Error(
+          data?.error || "The operation was not completed."
+        );
+      }
+
+      const completedOperation = pendingOperation;
+      const completedName = pendingDeviceName;
+
+      setPasswordModalVisible(false);
+      setAdminPassword("");
+      setPendingOperation(null);
+      setPendingDeviceId(null);
+      setPendingPayload(null);
+      setPendingDeviceName("");
 
       setModalVisible(false);
       setPreviewVisible(false);
@@ -308,73 +559,33 @@ export default function SettingsScreen() {
       await loadData();
 
       Alert.alert(
-        "Success",
-        editingDevice
-          ? "The device details have been updated."
-          : "The device has been added."
+        "Operation Successful",
+        completedOperation === "archive"
+          ? `"${completedName}" has been archived. Its detection history is preserved.`
+          : completedOperation === "edit"
+            ? `"${completedName}" has been updated.`
+            : `"${completedName}" has been added.`
       );
     } catch (error: any) {
       Alert.alert(
-        "Save Failed",
-        error?.message || "Could not save the device."
+        "Device Operation Failed",
+        error?.message || "The operation could not be completed."
       );
     } finally {
       setSaving(false);
+      setAdminPassword("");
     }
   };
 
-  const deleteDevice = (device: Device) => {
-    Alert.alert(
-      "Delete Device?",
-      `You selected "${device.name}". Deleting it may affect screens that use this device record. Continue only if you are sure.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Continue",
-          style: "destructive",
-          onPress: () => {
-            Alert.alert(
-              "Confirm Permanent Deletion",
-              `Are you absolutely sure you want to permanently delete "${device.name}"?`,
-              [
-                { text: "Keep Device", style: "cancel" },
-                {
-                  text: "Delete Permanently",
-                  style: "destructive",
-                  onPress: async () => {
-                    setSaving(true);
+  const cancelPasswordVerification = () => {
+    if (saving) return;
 
-                    try {
-                      const { error } = await supabase
-                        .from("devices")
-                        .delete()
-                        .eq("id", device.id);
-
-                      if (error) throw error;
-
-                      await loadData();
-
-                      Alert.alert(
-                        "Device Deleted",
-                        `"${device.name}" was deleted.`
-                      );
-                    } catch (error: any) {
-                      Alert.alert(
-                        "Delete Failed",
-                        error?.message ||
-                          "Could not delete this device."
-                      );
-                    } finally {
-                      setSaving(false);
-                    }
-                  },
-                },
-              ]
-            );
-          },
-        },
-      ]
-    );
+    setPasswordModalVisible(false);
+    setAdminPassword("");
+    setPendingOperation(null);
+    setPendingDeviceId(null);
+    setPendingPayload(null);
+    setPendingDeviceName("");
   };
 
   /* -------------------------------- Logout ------------------------------- */
@@ -390,6 +601,7 @@ export default function SettingsScreen() {
 
           try {
             const { error } = await supabase.auth.signOut();
+
             if (error) throw error;
 
             router.replace("/screens/LoginScreen");
@@ -454,6 +666,7 @@ export default function SettingsScreen() {
     <View style={styles.background}>
       <SafeAreaView style={styles.container} edges={["top"]}>
         <ScrollView
+          ref={scrollRef}
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
@@ -466,17 +679,9 @@ export default function SettingsScreen() {
                 Admin and maintenance preferences
               </Text>
             </View>
-
-            <View style={styles.headerIcon}>
-              <Ionicons
-                name="settings-outline"
-                size={22}
-                color={COLORS.white}
-              />
-            </View>
           </View>
 
-          {/* Admin profile: read-only */}
+          {/* Admin Account */}
           <View style={styles.section}>
             {renderSectionHeader(
               "person-outline",
@@ -579,9 +784,8 @@ export default function SettingsScreen() {
                     color={COLORS.primary}
                   />
                   <Text style={styles.infoBannerText}>
-                    These preferences currently work locally. Push
-                    notifications and saving preferences to Supabase are not
-                    connected yet.
+                    Your notification preferences are saved to Supabase and
+                    will be retained when you reopen the application.
                   </Text>
                 </View>
 
@@ -608,8 +812,9 @@ export default function SettingsScreen() {
                       <View style={styles.toggleWrap}>
                         <Switch
                           value={alertSettings[preference.key]}
+                          disabled={preferencesSaving !== null}
                           onValueChange={(value) =>
-                            toggleAlert(preference.key, value)
+                            void toggleAlert(preference.key, value)
                           }
                           trackColor={{
                             false: "#D9D9D9",
@@ -631,9 +836,11 @@ export default function SettingsScreen() {
                               styles.toggleLabelActive,
                           ]}
                         >
-                          {alertSettings[preference.key]
-                            ? "Enabled"
-                            : "Off"}
+                          {preferencesSaving === preference.key
+                            ? "Saving..."
+                            : alertSettings[preference.key]
+                              ? "Enabled"
+                              : "Off"}
                         </Text>
                       </View>
                     </View>
@@ -647,12 +854,17 @@ export default function SettingsScreen() {
             )}
           </View>
 
-          {/* Device management */}
-          <View style={styles.section}>
+          {/* Device Management */}
+          <View
+            style={styles.section}
+            onLayout={(e) => {
+              deviceSectionY.current = e.nativeEvent.layout.y;
+            }}
+          >
             {renderSectionHeader(
               "hardware-chip-outline",
               "Device Management",
-              "Create, edit, and remove registered devices",
+              "Create, edit, and archive registered devices",
               deviceConfigOpen,
               () => setDeviceConfigOpen((value) => !value)
             )}
@@ -759,18 +971,22 @@ export default function SettingsScreen() {
                           <Text style={styles.editButtonText}>Edit</Text>
                         </TouchableOpacity>
 
-                        <TouchableOpacity
-                          style={styles.deleteButton}
-                          onPress={() => deleteDevice(device)}
-                          activeOpacity={0.8}
-                        >
-                          <Ionicons
-                            name="trash-outline"
-                            size={17}
-                            color={COLORS.red}
-                          />
-                          <Text style={styles.deleteButtonText}>Delete</Text>
-                        </TouchableOpacity>
+                        {device.id !== PROTECTED_DEVICE_ID && (
+                          <TouchableOpacity
+                            style={styles.deleteButton}
+                            onPress={() => requestArchiveDevice(device)}
+                            activeOpacity={0.8}
+                          >
+                            <Ionicons
+                              name="archive-outline"
+                              size={17}
+                              color={COLORS.red}
+                            />
+                            <Text style={styles.deleteButtonText}>
+                              Archive
+                            </Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     </View>
                   ))
@@ -826,7 +1042,7 @@ export default function SettingsScreen() {
               <Text style={styles.maintenanceNoteText}>
                 Record inspection and repair history in your maintenance
                 records or activity logs. This section does not save
-                maintenance notes to Supabase.
+                maintenance notes to Supabase yet.
               </Text>
             </View>
           </View>
@@ -886,6 +1102,7 @@ export default function SettingsScreen() {
         transparent
         animationType="slide"
         onRequestClose={() => {
+          if (saving) return;
           setModalVisible(false);
           setPreviewVisible(false);
         }}
@@ -913,11 +1130,13 @@ export default function SettingsScreen() {
 
               <TouchableOpacity
                 onPress={() => {
+                  if (saving) return;
                   setModalVisible(false);
                   setPreviewVisible(false);
                 }}
                 style={styles.closeButton}
                 accessibilityLabel="Close device form"
+                disabled={saving}
               >
                 <Ionicons
                   name="close"
@@ -943,7 +1162,7 @@ export default function SettingsScreen() {
                   style={styles.textInput}
                 />
 
-                <Text style={styles.inputLabel}>Field Location</Text>
+                <Text style={styles.inputLabel}>Field Location *</Text>
                 <TextInput
                   value={form.location}
                   onChangeText={(value) =>
@@ -992,7 +1211,8 @@ export default function SettingsScreen() {
                       key={status}
                       style={[
                         styles.statusOption,
-                        form.status === status && styles.statusOptionSelected,
+                        form.status === status &&
+                          styles.statusOptionSelected,
                       ]}
                       onPress={() =>
                         setForm((current) => ({ ...current, status }))
@@ -1047,9 +1267,9 @@ export default function SettingsScreen() {
               >
                 {[
                   ["Device Name", form.name],
-                  ["Location", form.location || "Not provided"],
+                  ["Location", form.location],
                   ["IP Address", form.ip_address || "Not set"],
-                  ["Port", form.port || "Not set"],
+                  ["Port", form.port || "5000 (default)"],
                   ["Status", form.status],
                 ].map(([label, value]) => (
                   <View key={label} style={styles.previewRow}>
@@ -1058,49 +1278,161 @@ export default function SettingsScreen() {
                   </View>
                 ))}
 
+                <View style={styles.infoBanner}>
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={18}
+                    color={COLORS.primary}
+                  />
+                  <Text style={styles.infoBannerText}>
+                    Administrator password verification will be required
+                    before this change is submitted.
+                  </Text>
+                </View>
+
                 <TouchableOpacity
-                  style={[
-                    styles.primaryButton,
-                    saving && styles.buttonDisabled,
-                  ]}
-                  onPress={() => void saveDevice()}
-                  disabled={saving}
+                  style={styles.primaryButton}
+                  onPress={saveDevice}
                   activeOpacity={0.8}
                 >
-                  {saving ? (
-                    <ActivityIndicator color={COLORS.white} />
-                  ) : (
-                    <>
-                      <Ionicons
-                        name="checkmark-circle-outline"
-                        size={19}
-                        color={COLORS.white}
-                      />
-                      <Text style={styles.primaryButtonText}>
-                        {editingDevice
-                          ? "Confirm Update"
-                          : "Confirm and Add Device"}
-                      </Text>
-                    </>
-                  )}
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={19}
+                    color={COLORS.white}
+                  />
+                  <Text style={styles.primaryButtonText}>
+                    {editingDevice
+                      ? "Continue to Verification"
+                      : "Continue to Verification"}
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={styles.secondaryButton}
                   onPress={() => setPreviewVisible(false)}
-                  disabled={saving}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.secondaryButtonText}>Back to Edit</Text>
+                  <Text style={styles.secondaryButtonText}>
+                    Back to Edit
+                  </Text>
                 </TouchableOpacity>
               </ScrollView>
             )}
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Administrator Password Verification */}
+      <Modal
+        visible={passwordModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={cancelPasswordVerification}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>
+                  Administrator Verification
+                </Text>
+                <Text style={styles.modalSubtitle}>
+                  Enter your password to authorize this operation.
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.closeButton}
+                disabled={saving}
+                onPress={cancelPasswordVerification}
+              >
+                <Ionicons
+                  name="close"
+                  size={22}
+                  color={COLORS.darkGreen}
+                />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.infoBanner}>
+              <Ionicons
+                name="shield-checkmark-outline"
+                size={19}
+                color={COLORS.primary}
+              />
+              <Text style={styles.infoBannerText}>
+                {pendingOperation === "archive"
+                  ? `You are authorizing the archive of "${pendingDeviceName}".`
+                  : pendingOperation === "edit"
+                    ? `You are authorizing changes to "${pendingDeviceName}".`
+                    : `You are authorizing the creation of "${pendingDeviceName}".`}
+                {" "}Your password will not be stored.
+              </Text>
+            </View>
+
+            <Text style={styles.inputLabel}>
+              Administrator Password
+            </Text>
+
+            <TextInput
+              value={adminPassword}
+              onChangeText={setAdminPassword}
+              placeholder="Enter your current password"
+              placeholderTextColor="#9A9A9A"
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!saving}
+              style={styles.textInput}
+              onSubmitEditing={() => void executeDeviceOperation()}
+              returnKeyType="done"
+            />
+
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                saving && styles.buttonDisabled,
+              ]}
+              onPress={() => void executeDeviceOperation()}
+              disabled={saving}
+              activeOpacity={0.8}
+            >
+              {saving ? (
+                <ActivityIndicator color={COLORS.white} />
+              ) : (
+                <>
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={18}
+                    color={COLORS.white}
+                  />
+                  <Text style={styles.primaryButtonText}>
+                    Verify and Confirm
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              disabled={saving}
+              onPress={cancelPasswordVerification}
+            >
+              <Text style={styles.secondaryButtonText}>
+                Cancel Operation
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
+
+/* -------------------------------- STYLES -------------------------------- */
 
 const styles = StyleSheet.create({
   background: {
