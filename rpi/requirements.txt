@@ -1,6 +1,0 @@
-flask
-opencv-python
-requests
-# Uncomment whichever matches how you trained/exported your model:
-# tflite-runtime
-# ultralytics        # if you're using a YOLO model
