@@ -461,7 +461,7 @@ export default function SettingsScreen() {
           <View style={styles.aboutCard}>
             <View style={styles.aboutLogo}>
               <Image
-                source={require("../../public/icon-512.png")}
+                source={require("../../assets/images/app-icon.png")}
                 style={styles.aboutLogoImage}
                 resizeMode="contain"
               />

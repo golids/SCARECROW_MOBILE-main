@@ -1,8 +1,27 @@
+
 import { useEffect, useRef } from "react";
-import { View, ImageBackground, StyleSheet, Text, Animated, Easing } from "react-native";
+import {
+  View,
+  StyleSheet,
+  Text,
+  Animated,
+  Easing,
+} from "react-native";
+import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { useFonts, PlusJakartaSans_400Regular, PlusJakartaSans_700Bold } from "@expo-google-fonts/plus-jakarta-sans";
+import {
+  useFonts,
+  PlusJakartaSans_400Regular,
+  PlusJakartaSans_700Bold,
+} from "@expo-google-fonts/plus-jakarta-sans";
+
+const COLORS = {
+  background: "#F7F9E9",
+  darkGreen: "#123B25",
+  primary: "#4F8F3A",
+  lightGreen: "#E8F0B8",
+};
 
 export default function Index() {
   const insets = useSafeAreaInsets();
@@ -52,77 +71,80 @@ export default function Index() {
       ]),
     ]).start();
 
-    // Redirect after 3 seconds (no out animation)
+    // Redirect after 2 seconds
     const timer = setTimeout(() => {
-      router.push("/screens/LoginScreen");
-    }, 3000);
+      router.replace("/screens/LoginScreen");
+    }, 2000);
 
     return () => clearTimeout(timer);
-  }, [router, fontsLoaded]);
+  }, [
+    router,
+    fontsLoaded,
+    logoOpacity,
+    logoScale,
+    textOpacity,
+    textTranslateY,
+  ]);
 
   return (
-    <ImageBackground
-      source={require("../assets/images/index-bg.png")}
-      style={styles.backgroundImage}
-      resizeMode="cover"
+    <View
+      style={[
+        styles.container,
+        {
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom,
+          paddingLeft: insets.left,
+          paddingRight: insets.right,
+        },
+      ]}
     >
-      <View
-        style={[
-          styles.container,
-          {
-            paddingTop: insets.top,
-            paddingBottom: insets.bottom,
-            paddingLeft: insets.left,
-            paddingRight: insets.right,
-          },
-        ]}
-      >
-        <View style={styles.content}>
-          {/* Logo */}
-          <Animated.Image
-            source={require("../assets/images/app-logo.png")}
-            style={[
-              styles.logo,
-              {
-                opacity: logoOpacity,
-                transform: [{ scale: logoScale }],
-              },
-            ]}
-            resizeMode="contain"
-          />
+      {/* Phone Status Bar */}
+      <StatusBar
+        style="dark"
+        hidden={false}
+      />
 
-          {/* App Name + Abbreviation */}
-          <Animated.View
-            style={[
-              styles.textContainer,
-              {
-                opacity: textOpacity,
-                transform: [{ translateY: textTranslateY }],
-              },
-            ]}
-          >
-            <Text style={styles.appName}>
-              SCARE<Text style={styles.appNameBold}>CROW</Text>
-            </Text>
+      <View style={styles.content}>
+        {/* Logo */}
+        <Animated.Image
+          source={require("../assets/images/app-logo.png")}
+          style={[
+            styles.logo,
+            {
+              opacity: logoOpacity,
+              transform: [{ scale: logoScale }],
+            },
+          ]}
+          resizeMode="contain"
+        />
 
-            <Text style={styles.abbrName}>
-              Crop Reliable Operative Warden
-            </Text>
-          </Animated.View>
-        </View>
+        {/* App Name and Abbreviation */}
+        <Animated.View
+          style={[
+            styles.textContainer,
+            {
+              opacity: textOpacity,
+              transform: [{ translateY: textTranslateY }],
+            },
+          ]}
+        >
+          <Text style={styles.appName}>
+            SCARE<Text style={styles.appNameBold}>CROW</Text>
+          </Text>
+
+          <Text style={styles.abbrName}>
+            Crop Reliable Operative Warden
+          </Text>
+        </Animated.View>
       </View>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  backgroundImage: {
-    flex: 1,
-    width: "100%",
-    height: "100%",
-  },
   container: {
     flex: 1,
+    backgroundColor: COLORS.background,
   },
   content: {
     flex: 1,
@@ -130,31 +152,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   logo: {
-    width: 300,
-    height: 300,
+    width: 500,
+    height: 500,
+    marginBottom: -100,
     marginTop: -200,
-    marginBottom: 25,
+    marginRight: -50,
   },
   textContainer: {
     alignItems: "center",
     paddingHorizontal: 24,
   },
   appName: {
-    fontFamily: "PlusJakartaSans_500Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     fontSize: 50,
     letterSpacing: 5,
-    color: "#004E00",
+    color: COLORS.darkGreen,
     textAlign: "center",
   },
   appNameBold: {
     fontFamily: "PlusJakartaSans_700Bold",
     fontWeight: "700",
+    color: COLORS.primary,
   },
   abbrName: {
     fontFamily: "PlusJakartaSans_400Regular",
     fontSize: 20,
     letterSpacing: 1.5,
-    color: "#004E00",
+    color: COLORS.darkGreen,
     textAlign: "center",
     marginTop: 8,
     opacity: 0.85,

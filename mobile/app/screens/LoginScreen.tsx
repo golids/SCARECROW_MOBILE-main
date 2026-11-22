@@ -5,7 +5,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  ImageBackground,
   StyleSheet,
   Image,
   Alert,
@@ -14,6 +13,7 @@ import {
   ScrollView,
   Platform,
 } from "react-native";
+import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -44,7 +44,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [showForgotBanner, setShowForgotBanner] = useState<boolean>(false);
 
-  const passwordRef = useRef<TextInput>(null);
+  const passwordRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const router = useRouter();
 
   const params = useLocalSearchParams<{
@@ -115,203 +115,202 @@ export default function LoginScreen() {
     setShowForgotBanner((visible) => !visible);
   };
 
-  return (
-    <ImageBackground
-      source={require("../../assets/images/index-bg.png")}
-      style={styles.backgroundImage}
-      resizeMode="cover"
-    >
-      <SafeAreaView style={styles.container}>
+    return (
+      <SafeAreaView style={styles.screen}>
+        <StatusBar
+          style="dark"
+
+          hidden={false}
+        />
+
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
         >
-          <ScrollView
-            contentContainerStyle={styles.content}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            keyboardDismissMode="on-drag"
-            automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
-          >
-            {/* Logo + App Name + Abbreviation */}
-            <View style={styles.brandingContainer}>
-              <Image
-                source={require("../../assets/images/app-logo.png")}
-                style={styles.logo}
-                resizeMode="contain"
-              />
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+        >
+          {/* Logo + App Name + Abbreviation */}
+          <View style={styles.brandingContainer}>
+            <Image
+              source={require("../../assets/images/app-icon.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
 
-              <Text style={styles.appName}>
-                SCARE<Text style={styles.appNameBold}>CROW</Text>
-              </Text>
+            <Text style={styles.appName}>
+              SCARE<Text style={styles.appNameBold}>CROW</Text>
+            </Text>
 
-              <Text style={styles.abbrName}>
-                Crop Reliable Operative Warden
-              </Text>
-            </View>
+            <Text style={styles.abbrName}>
+              Crop Reliable Operative Warden
+            </Text>
+          </View>
 
-            {/* Login Card */}
-            <View style={styles.loginCard}>
-              <Text style={styles.title}>ADMIN PORTAL</Text>
+          {/* Login Card */}
+          <View style={styles.loginCard}>
+            <Text style={styles.title}>ADMIN PORTAL</Text>
 
-              <Text style={styles.subtitle}>
-                Authorized personnel only. Please sign in to continue.
-              </Text>
+            <Text style={styles.subtitle}>
+              Authorized personnel only. Please sign in to continue.
+            </Text>
 
-              {/* Username and Password */}
-              <View style={styles.inputContainer}>
-                <View style={styles.inputWrapper}>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Username"
-                    placeholderTextColor="#808080"
-                    value={username}
-                    onChangeText={setUsername}
-                    keyboardType="default"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    autoComplete="username"
-                    textContentType="username"
-                    returnKeyType="next"
-                    onSubmitEditing={() =>
-                      passwordRef.current?.focus()
-                    }
-                    blurOnSubmit={false}
-                    editable={!loading}
-                  />
-                </View>
-
-                <View style={styles.inputWrapper}>
-                  <TextInput
-                    ref={passwordRef}
-                    style={styles.input}
-                    placeholder="Password"
-                    placeholderTextColor="#808080"
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry={!showPassword}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    autoComplete="password"
-                    textContentType="password"
-                    returnKeyType="go"
-                    onSubmitEditing={handleLogin}
-                    editable={!loading}
-                  />
-
-                  {/* Show / Hide Password */}
-                  <TouchableOpacity
-                    style={styles.eyeIcon}
-                    onPress={() => setShowPassword(!showPassword)}
-                    disabled={loading}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons
-                      name={
-                        showPassword
-                          ? "eye-off-outline"
-                          : "eye-outline"
-                      }
-                      size={22}
-                      color="#4F8F3A"
-                    />
-                  </TouchableOpacity>
-                </View>
+            {/* Username and Password */}
+            <View style={styles.inputContainer}>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Username"
+                  placeholderTextColor="#808080"
+                  value={username}
+                  onChangeText={setUsername}
+                  keyboardType="default"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="username"
+                  textContentType="username"
+                  returnKeyType="next"
+                  onSubmitEditing={() => passwordRef.current?.focus()}
+                  blurOnSubmit={false}
+                  editable={!loading}
+                />
               </View>
 
-              {/* Forgot Password */}
-              <TouchableOpacity
-                style={styles.forgotContainer}
-                onPress={handleForgotPassword}
-                disabled={loading}
-              >
-                <Text style={styles.forgotText}>
-                  Forgot Password?
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  ref={passwordRef}
+                  style={styles.input}
+                  placeholder="Password"
+                  placeholderTextColor="#808080"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="password"
+                  textContentType="password"
+                  returnKeyType="go"
+                  onSubmitEditing={handleLogin}
+                  editable={!loading}
+                />
 
-              {/* Forgot Password Information Banner */}
-              {showForgotBanner && (
-                <View
-                  style={styles.banner}
-                  accessibilityLiveRegion="polite"
+                {/* Show / Hide Password */}
+                <TouchableOpacity
+                  style={styles.eyeIcon}
+                  onPress={() => setShowPassword(!showPassword)}
+                  disabled={loading}
+                  activeOpacity={0.7}
                 >
                   <Ionicons
-                    name="information-circle"
+                    name={
+                      showPassword
+                        ? "eye-off-outline"
+                        : "eye-outline"
+                    }
                     size={22}
                     color="#4F8F3A"
-                    style={styles.bannerIcon}
                   />
-
-                  <Text style={styles.bannerText}>
-                    Please contact your{" "}
-                    <Text style={styles.bannerBold}>
-                      Administrator
-                    </Text>{" "}
-                    or the{" "}
-                    <Text style={styles.bannerBold}>
-                      Maintenance team
-                    </Text>{" "}
-                    to have your password reset.
-                  </Text>
-
-                  <TouchableOpacity
-                    onPress={() => setShowForgotBanner(false)}
-                    hitSlop={{
-                      top: 10,
-                      bottom: 10,
-                      left: 10,
-                      right: 10,
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons
-                      name="close"
-                      size={18}
-                      color="#123B25"
-                    />
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* Login Button */}
-              <TouchableOpacity
-                style={[
-                  styles.loginButton,
-                  loading && styles.loginButtonDisabled,
-                ]}
-                onPress={handleLogin}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator
-                    color="#FFFFFF"
-                    size="small"
-                  />
-                ) : (
-                  <Text style={styles.loginButtonText}>
-                    LOG IN
-                  </Text>
-                )}
-              </TouchableOpacity>
+                </TouchableOpacity>
+              </View>
             </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </ImageBackground>
+
+            {/* Forgot Password */}
+            <TouchableOpacity
+              style={styles.forgotContainer}
+              onPress={handleForgotPassword}
+              disabled={loading}
+            >
+              <Text style={styles.forgotText}>
+                Forgot Password?
+              </Text>
+            </TouchableOpacity>
+
+            {/* Forgot Password Information Banner */}
+            {showForgotBanner && (
+              <View
+                style={styles.banner}
+                accessibilityLiveRegion="polite"
+              >
+                <Ionicons
+                  name="information-circle"
+                  size={22}
+                  color="#4F8F3A"
+                  style={styles.bannerIcon}
+                />
+
+                <Text style={styles.bannerText}>
+                  Please contact your{" "}
+                  <Text style={styles.bannerBold}>
+                    Administrator
+                  </Text>{" "}
+                  or the{" "}
+                  <Text style={styles.bannerBold}>
+                    Maintenance team
+                  </Text>{" "}
+                  to have your password reset.
+                </Text>
+
+                <TouchableOpacity
+                  onPress={() => setShowForgotBanner(false)}
+                  hitSlop={{
+                    top: 10,
+                    bottom: 10,
+                    left: 10,
+                    right: 10,
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name="close"
+                    size={18}
+                    color="#123B25"
+                  />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Login Button */}
+            <TouchableOpacity
+              style={[
+                styles.loginButton,
+                loading && styles.loginButtonDisabled,
+              ]}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator
+                  color="#FFFFFF"
+                  size="small"
+                />
+              ) : (
+                <Text style={styles.loginButtonText}>
+                  LOG IN
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  backgroundImage: {
+  // Main screen background
+  screen: {
     flex: 1,
-    width: "100%",
-    height: "100%",
+    backgroundColor: "#F7F9E9",
   },
 
   container: {
     flex: 1,
+    backgroundColor: "#F7F9E9",
   },
 
   content: {
@@ -321,6 +320,7 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
   },
 
+  // Branding
   brandingContainer: {
     alignItems: "center",
     marginTop: 15,
@@ -328,16 +328,16 @@ const styles = StyleSheet.create({
   },
 
   logo: {
-    width: 300,
-    height: 300,
-    marginBottom: 12,
+    width: 180,
+    height: 180,
+    marginBottom: 8,
   },
 
   appName: {
     fontFamily: "PlusJakartaSans_400Regular",
-    fontSize: 50,
+    fontSize: 42,
     letterSpacing: 3,
-    color: "#004E00",
+    color: "#123B25",
     textAlign: "center",
   },
 
@@ -348,55 +348,62 @@ const styles = StyleSheet.create({
 
   abbrName: {
     fontFamily: "PlusJakartaSans_400Regular",
-    fontSize: 20,
-    letterSpacing: 1.2,
-    color: "#004E00",
+    fontSize: 15,
+    letterSpacing: 1,
+    color: "#123B25",
     textAlign: "center",
     marginTop: 4,
     opacity: 0.85,
   },
 
+  // Login Card
   loginCard: {
-    backgroundColor: "rgba(232, 240, 184, 0.35)",
-    borderRadius: 24,
-    paddingVertical: 24,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    paddingVertical: 28,
     paddingHorizontal: 20,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.4)",
+    borderColor: "#E5E9D2",
+    elevation: 3,
+    shadowColor: "#123B25",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
   },
 
   title: {
     fontSize: 25,
     fontFamily: "PlusJakartaSans_700Bold",
-    color: "#000000",
+    color: "#123B25",
     marginBottom: 5,
     textAlign: "center",
   },
 
   subtitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: "PlusJakartaSans_400Regular",
-    color: "#000000",
+    color: "#808080",
     marginBottom: 20,
     textAlign: "center",
-    paddingHorizontal: 20,
-    lineHeight: 30,
+    paddingHorizontal: 10,
+    lineHeight: 23,
   },
 
+  // Input Fields
   inputContainer: {
     marginBottom: 16,
   },
 
   inputWrapper: {
-    backgroundColor: "rgba(255, 255, 255, 0.35)",
+    backgroundColor: "#FFFFFF",
     borderRadius: 10,
     marginBottom: 12,
-    borderWidth: 1.5,
+    borderWidth: 1,
     width: "95%",
     alignSelf: "center",
     height: 50,
-    borderColor: "#123B25",
+    borderColor: "#E5E9D2",
     flexDirection: "row",
     alignItems: "center",
   },
@@ -407,7 +414,7 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     fontSize: 15,
     fontFamily: "PlusJakartaSans_400Regular",
-    color: "#000000",
+    color: "#123B25",
   },
 
   eyeIcon: {
@@ -416,6 +423,7 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
 
+  // Forgot Password
   forgotContainer: {
     alignItems: "flex-end",
     marginTop: -10,
@@ -425,15 +433,16 @@ const styles = StyleSheet.create({
 
   forgotText: {
     color: "#123B25",
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: "PlusJakartaSans_500Medium",
   },
 
+  // Forgot Password Banner
   banner: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
-    backgroundColor: "rgba(255, 255, 255, 0.85)",
+    backgroundColor: "#F7F9E9",
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#4F8F3A",
@@ -460,18 +469,17 @@ const styles = StyleSheet.create({
     fontFamily: "PlusJakartaSans_600SemiBold",
   },
 
+  // Login Button
   loginButton: {
     backgroundColor: "#4F8F3A",
-    borderRadius: 18,
+    borderRadius: 12,
     paddingVertical: 6,
     alignItems: "center",
     marginTop: -10,
-    marginBottom: 20,
-    width: "40%",
-    height: 55,
+    marginBottom: 10,
+    width: "60%",
+    height: 52,
     alignSelf: "center",
-    borderWidth: 1.5,
-    borderColor: "#123B25",
     justifyContent: "center",
   },
 
@@ -481,7 +489,7 @@ const styles = StyleSheet.create({
 
   loginButtonText: {
     color: "#FFFFFF",
-    fontSize: 20,
+    fontSize: 18,
     fontFamily: "PlusJakartaSans_600SemiBold",
     letterSpacing: 0.5,
   },
