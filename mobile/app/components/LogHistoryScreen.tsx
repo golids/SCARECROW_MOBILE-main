@@ -1,5 +1,9 @@
-
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   View,
   Text,
@@ -8,9 +12,13 @@ import {
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
+import DateTimePicker, {
+  DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
 
 import {
   Device,
@@ -20,8 +28,14 @@ import {
   subscribeToDetectionLogs,
 } from "../../lib/devices";
 
-type Category = "bird" | "alerts";
-type DateFilter = "all" | "today" | "yesterday";
+import { useLanguage } from "../context/LanguageContext";
+
+type ScreenMode = "detections" | "alerts";
+type DateFilter = "all" | "today" | "yesterday" | "custom";
+
+type Props = {
+  mode: ScreenMode;
+};
 
 const LOG_LIMIT = 500;
 const PREVIEW_LIMIT = 5;
@@ -48,11 +62,33 @@ const FONT = {
   bold: "PlusJakartaSans_700Bold",
 };
 
-function getDateBucket(dateString: string): "Today" | "Yesterday" | "Earlier" {
+function isBirdDetection(log: DetectionLog) {
+  return log.event_type?.toLowerCase() === "bird_detected";
+}
+
+function isSameDay(value: string | Date, target: Date) {
+  const date = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(date.getTime())) return false;
+
+  return (
+    date.getFullYear() === target.getFullYear() &&
+    date.getMonth() === target.getMonth() &&
+    date.getDate() === target.getDate()
+  );
+}
+
+function getDateBucket(
+  dateString: string
+): "Today" | "Yesterday" | "Earlier" {
   const date = new Date(dateString);
   const now = new Date();
 
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const today = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate()
+  );
 
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
@@ -84,19 +120,29 @@ function formatDate(dateString: string) {
   });
 }
 
-function getEventLabel(eventType: string) {
+function formatPickedDate(date: Date) {
+  return date.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function getEventLabel(
+  eventType: string,
+  t: (key: any) => string
+) {
   const labels: Record<string, string> = {
-    bird_detected: "Bird Detected",
-    motion: "Motion Detected",
-    offline: "Device Offline",
-    online: "Device Online",
-    system: "System Event",
-    battery: "Battery Alert",
-    device_error: "Device Error",
-    error: "Device Error",
-    low_battery: "Low Battery",
-    device_recovery: "Device Recovered",
-    recovery: "Device Recovered",
+    offline: t("deviceOffline"),
+    online: t("deviceOnline"),
+    system: t("systemEvent"),
+    battery: t("batteryAlert"),
+    device_error: t("deviceError"),
+    error: t("deviceError"),
+    low_battery: t("lowBattery"),
+    device_recovery: t("deviceRecovered"),
+    recovery: t("deviceRecovered"),
+    motion: t("motionDetected"),
   };
 
   return (
@@ -107,7 +153,9 @@ function getEventLabel(eventType: string) {
   );
 }
 
-function getEventIcon(eventType: string): keyof typeof Ionicons.glyphMap {
+function getEventIcon(
+  eventType: string
+): keyof typeof Ionicons.glyphMap {
   const type = eventType.toLowerCase();
 
   if (type === "offline") return "cloud-offline-outline";
@@ -163,16 +211,21 @@ function getEventColor(eventType: string) {
   };
 }
 
-export default function LogsScreen() {
+export default function LogHistoryScreen({ mode }: Props) {
+  const { t } = useLanguage();
+
+  const isDetectionScreen = mode === "detections";
+
   const [devices, setDevices] = useState<Device[]>([]);
   const [logs, setLogs] = useState<DetectionLog[]>([]);
 
-  const [category, setCategory] = useState<Category>("bird");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
-  const [selectedDevice, setSelectedDevice] = useState<string>("all");
+  const [customDate, setCustomDate] = useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  const [selectedDevice, setSelectedDevice] = useState("all");
 
   const [deviceDropdownOpen, setDeviceDropdownOpen] = useState(false);
-
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -192,7 +245,7 @@ export default function LogsScreen() {
       setDevices(deviceData);
       setLogs(logData);
     } catch (error) {
-      console.error("Failed to load logs:", error);
+      console.error("Failed to load activity history:", error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -224,12 +277,18 @@ export default function LogsScreen() {
     };
   }, [loadData]);
 
-  const isBirdDetection = (log: DetectionLog) =>
-    log.event_type?.toLowerCase() === "bird_detected";
+  const handleDateChange = (event: DateTimePickerEvent, date?: Date) => {
+    setShowDatePicker(false);
+
+    if (event.type === "set" && date) {
+      setCustomDate(date);
+      setDateFilter("custom");
+    }
+  };
 
   const filteredLogs = useMemo(() => {
     let result = logs.filter((log) =>
-      category === "bird"
+      isDetectionScreen
         ? isBirdDetection(log)
         : !isBirdDetection(log)
     );
@@ -240,13 +299,18 @@ export default function LogsScreen() {
       );
     }
 
-    if (dateFilter !== "all") {
+    if (dateFilter === "today" || dateFilter === "yesterday") {
       result = result.filter((log) => {
         const bucket = getDateBucket(log.created_at);
+
         return dateFilter === "today"
           ? bucket === "Today"
           : bucket === "Yesterday";
       });
+    } else if (dateFilter === "custom" && customDate) {
+      result = result.filter((log) =>
+        isSameDay(log.created_at, customDate)
+      );
     }
 
     return result.sort(
@@ -254,26 +318,18 @@ export default function LogsScreen() {
         new Date(b.created_at).getTime() -
         new Date(a.created_at).getTime()
     );
-  }, [logs, category, selectedDevice, dateFilter]);
+  }, [logs, isDetectionScreen, selectedDevice, dateFilter, customDate]);
 
-  const todayBirdCount = useMemo(
+  const todayCount = useMemo(
     () =>
       logs.filter(
         (log) =>
-          isBirdDetection(log) &&
+          (isDetectionScreen
+            ? isBirdDetection(log)
+            : !isBirdDetection(log)) &&
           getDateBucket(log.created_at) === "Today"
       ).length,
-    [logs]
-  );
-
-  const todayAlertCount = useMemo(
-    () =>
-      logs.filter(
-        (log) =>
-          !isBirdDetection(log) &&
-          getDateBucket(log.created_at) === "Today"
-      ).length,
-    [logs]
+    [logs, isDetectionScreen]
   );
 
   const groupedLogs = useMemo(() => {
@@ -317,7 +373,7 @@ export default function LogsScreen() {
             <Ionicons
               name={
                 bird
-                  ? "eye-outline"
+                  ? "warning-outline"
                   : getEventIcon(log.event_type)
               }
               size={21}
@@ -332,12 +388,12 @@ export default function LogsScreen() {
           <View style={styles.logMain}>
             <Text style={styles.logTitle}>
               {bird
-                ? log.species || log.label || "Bird Detected"
-                : getEventLabel(log.event_type)}
+                ? log.species || log.label || t("birdDetected")
+                : getEventLabel(log.event_type, t)}
             </Text>
 
             <Text style={styles.logDevice}>
-              {log.device_name || "Unknown Device"}
+              {log.device_name || t("unknownDevice")}
             </Text>
           </View>
 
@@ -349,13 +405,8 @@ export default function LogsScreen() {
         {bird ? (
           <View style={styles.logDetails}>
             <View style={styles.detailChip}>
-              <Ionicons
-                name="eye-outline"
-                size={13}
-                color={COLORS.gray}
-              />
               <Text style={styles.detailText}>
-                {log.label || "Bird detection"}
+                {log.label || t("birdDetection")}
               </Text>
             </View>
           </View>
@@ -373,7 +424,7 @@ export default function LogsScreen() {
                   { color: eventColor.foreground },
                 ]}
               >
-                {getEventLabel(log.event_type)}
+                {getEventLabel(log.event_type, t)}
               </Text>
             </View>
 
@@ -393,12 +444,12 @@ export default function LogsScreen() {
   };
 
   const renderSection = (
-    title: "Today" | "Yesterday" | "Earlier",
+    title: "Today" | "Yesterday" | "Earlier" | "Custom",
     items: DetectionLog[]
   ) => {
     if (items.length === 0) return null;
 
-    const sectionKey = `${category}-${title}`;
+    const sectionKey = `${mode}-${title}`;
     const expanded = !!expandedSections[sectionKey];
 
     const visibleItems = expanded
@@ -407,12 +458,29 @@ export default function LogsScreen() {
 
     const hasMore = items.length > PREVIEW_LIMIT;
 
+    const translatedTitle =
+      title === "Today"
+        ? t("today")
+        : title === "Yesterday"
+        ? t("yesterday")
+        : title === "Custom"
+        ? customDate
+          ? formatPickedDate(customDate)
+          : ("custom")
+        : t("earlier");
+
     return (
       <View key={sectionKey} style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{title}</Text>
+          <Text style={styles.sectionTitle}>
+            {translatedTitle}
+          </Text>
+
           <Text style={styles.sectionCount}>
-            {items.length} {items.length === 1 ? "record" : "records"}
+            {items.length}{" "}
+            {items.length === 1
+              ? t("record")
+              : t("records")}
           </Text>
         </View>
 
@@ -426,8 +494,8 @@ export default function LogsScreen() {
           >
             <Text style={styles.expandButtonText}>
               {expanded
-                ? "Show less"
-                : `Show all ${items.length} records`}
+                ? t("showLess")
+                : `${t("showAll")} ${items.length} ${t("records")}`}
             </Text>
 
             <Ionicons
@@ -441,24 +509,26 @@ export default function LogsScreen() {
     );
   };
 
-  const currentCount =
-    category === "bird"
-      ? todayBirdCount
-      : todayAlertCount;
+  const title = isDetectionScreen
+    ? t("detections")
+    : t("deviceAlerts");
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerTitle}>Activity Logs</Text>
+          <Text style={styles.headerTitle}>{title}</Text>
+
           <Text style={styles.headerSubtitle}>
-            Monitor detections and device activities
+            {isDetectionScreen
+              ? t("monitorBirdDetections")
+              : t("monitorDeviceEvents")}
           </Text>
         </View>
 
         <TouchableOpacity
           style={styles.refreshButton}
-          onPress={() => refresh()}
+          onPress={refresh}
           activeOpacity={0.7}
         >
           <Ionicons
@@ -469,68 +539,12 @@ export default function LogsScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.categoryContainer}>
-        <TouchableOpacity
-          style={[
-            styles.categoryButton,
-            category === "bird" && styles.activeCategoryButton,
-          ]}
-          onPress={() => setCategory("bird")}
-          activeOpacity={0.8}
-        >
-          <Ionicons
-            name="eye-outline"
-            size={18}
-            color={
-              category === "bird"
-                ? COLORS.white
-                : COLORS.darkGreen
-            }
-          />
-          <Text
-            style={[
-              styles.categoryText,
-              category === "bird" && styles.activeCategoryText,
-            ]}
-          >
-            Bird Detection
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.categoryButton,
-            category === "alerts" && styles.activeCategoryButton,
-          ]}
-          onPress={() => setCategory("alerts")}
-          activeOpacity={0.8}
-        >
-          <Ionicons
-            name="notifications-outline"
-            size={18}
-            color={
-              category === "alerts"
-                ? COLORS.white
-                : COLORS.darkGreen
-            }
-          />
-          <Text
-            style={[
-              styles.categoryText,
-              category === "alerts" && styles.activeCategoryText,
-            ]}
-          >
-            Device Alerts
-          </Text>
-        </TouchableOpacity>
-      </View>
-
       <View style={styles.summaryCard}>
         <View style={styles.summaryIcon}>
           <Ionicons
             name={
-              category === "bird"
-                ? "eye-outline"
+              isDetectionScreen
+                ? "radio-outline"
                 : "notifications-outline"
             }
             size={23}
@@ -540,17 +554,18 @@ export default function LogsScreen() {
 
         <View style={styles.summaryContent}>
           <Text style={styles.summaryLabel}>
-            {category === "bird"
-              ? "Bird Detections Today"
-              : "Device Alerts Today"}
+            {isDetectionScreen
+              ? t("birdDetectionsToday")
+              : t("deviceAlertsToday")}
           </Text>
-          <Text style={styles.summaryValue}>
-            {currentCount}
-          </Text>
+
+          <Text style={styles.summaryValue}>{todayCount}</Text>
         </View>
 
         <View style={styles.summaryTag}>
-          <Text style={styles.summaryTagText}>Today</Text>
+          <Text style={styles.summaryTagText}>
+            {t("today")}
+          </Text>
         </View>
       </View>
 
@@ -562,9 +577,9 @@ export default function LogsScreen() {
         >
           {(
             [
-              ["all", "All"],
-              ["today", "Today"],
-              ["yesterday", "Yesterday"],
+              ["all", t("all")],
+              ["today", t("today")],
+              ["yesterday", t("yesterday")],
             ] as [DateFilter, string][]
           ).map(([value, label]) => (
             <TouchableOpacity
@@ -585,11 +600,52 @@ export default function LogsScreen() {
               </Text>
             </TouchableOpacity>
           ))}
+
+          <TouchableOpacity
+            onPress={() => setShowDatePicker(true)}
+            style={[
+              styles.filterButton,
+              dateFilter === "custom" && styles.activeFilterButton,
+            ]}
+          >
+            <Ionicons
+              name="calendar-outline"
+              size={13}
+              color={
+                dateFilter === "custom"
+                  ? COLORS.darkGreen
+                  : COLORS.gray
+              }
+            />
+
+            <Text
+              style={[
+                styles.filterText,
+                dateFilter === "custom" && styles.activeFilterText,
+              ]}
+            >
+              {dateFilter === "custom" && customDate
+                ? formatPickedDate(customDate)
+                : ("custom")}
+            </Text>
+          </TouchableOpacity>
         </ScrollView>
+
+        {showDatePicker && (
+          <DateTimePicker
+            value={customDate ?? new Date()}
+            mode="date"
+            display={Platform.OS === "ios" ? "inline" : "default"}
+            maximumDate={new Date()}
+            onChange={handleDateChange}
+          />
+        )}
 
         <TouchableOpacity
           style={styles.deviceFilter}
-          onPress={() => setDeviceDropdownOpen((previous) => !previous)}
+          onPress={() =>
+            setDeviceDropdownOpen((previous) => !previous)
+          }
           activeOpacity={0.8}
         >
           <Ionicons
@@ -600,9 +656,9 @@ export default function LogsScreen() {
 
           <Text style={styles.deviceFilterText} numberOfLines={1}>
             {selectedDevice === "all"
-              ? "All Devices"
+              ? t("allDevices")
               : devices.find((device) => device.id === selectedDevice)
-                  ?.name || "Selected Device"}
+                  ?.name || t("selectedDevice")}
           </Text>
 
           <Ionicons
@@ -628,10 +684,11 @@ export default function LogsScreen() {
               <Text
                 style={[
                   styles.dropdownText,
-                  selectedDevice === "all" && styles.selectedDropdownText,
+                  selectedDevice === "all" &&
+                    styles.selectedDropdownText,
                 ]}
               >
-                All Devices
+                {t("allDevices")}
               </Text>
 
               {selectedDevice === "all" && (
@@ -681,8 +738,13 @@ export default function LogsScreen() {
             size="large"
             color={COLORS.primary}
           />
+
           <Text style={styles.loadingText}>
-            Loading activity logs...
+            {t("loading")}{" "}
+            {isDetectionScreen
+              ? t("detections").toLowerCase()
+              : t("alerts").toLowerCase()}
+            ...
           </Text>
         </View>
       ) : (
@@ -700,14 +762,16 @@ export default function LogsScreen() {
         >
           <View style={styles.resultsHeader}>
             <Text style={styles.resultsTitle}>
-              {category === "bird"
-                ? "Bird Detection History"
-                : "Device Alert History"}
+              {isDetectionScreen
+                ? t("birdDetectionHistory")
+                : t("deviceAlertHistory")}
             </Text>
 
             <Text style={styles.resultsCount}>
               {filteredLogs.length}{" "}
-              {filteredLogs.length === 1 ? "result" : "results"}
+              {filteredLogs.length === 1
+                ? t("result")
+                : t("results")}
             </Text>
           </View>
 
@@ -716,7 +780,7 @@ export default function LogsScreen() {
               <View style={styles.emptyIcon}>
                 <Ionicons
                   name={
-                    category === "bird"
+                    isDetectionScreen
                       ? "eye-outline"
                       : "notifications-off-outline"
                   }
@@ -726,15 +790,17 @@ export default function LogsScreen() {
               </View>
 
               <Text style={styles.emptyTitle}>
-                No Records Found
+                {t("noRecordsFound")}
               </Text>
 
               <Text style={styles.emptyDescription}>
-                {category === "bird"
-                  ? "Bird detection records will appear here when your ScareCROW device detects birds."
-                  : "Device alerts and system activities will appear here when your devices report an event."}
+                {isDetectionScreen
+                  ? t("noBirdDetectionRecords")
+                  : t("noDeviceAlertRecords")}
               </Text>
             </View>
+          ) : dateFilter === "custom" ? (
+            renderSection("Custom", filteredLogs)
           ) : (
             <>
               {renderSection("Today", groupedLogs.Today)}
@@ -744,7 +810,7 @@ export default function LogsScreen() {
           )}
 
           <Text style={styles.footerText}>
-            ScareCROW Monitoring System
+            {t("monitoringSystem")}
           </Text>
         </ScrollView>
       )}
@@ -787,40 +853,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.veryLightGreen,
     alignItems: "center",
     justifyContent: "center",
-  },
-
-  categoryContainer: {
-    flexDirection: "row",
-    marginHorizontal: 20,
-    padding: 5,
-    borderRadius: 15,
-    backgroundColor: COLORS.lightGray,
-    marginBottom: 16,
-  },
-
-  categoryButton: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 11,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    paddingHorizontal: 5,
-  },
-
-  activeCategoryButton: {
-    backgroundColor: COLORS.darkGreen,
-  },
-
-  categoryText: {
-    fontFamily: FONT.semiBold,
-    fontSize: 12,
-    color: COLORS.darkGreen,
-  },
-
-  activeCategoryText: {
-    color: COLORS.white,
   },
 
   summaryCard: {
@@ -885,6 +917,9 @@ const styles = StyleSheet.create({
   },
 
   filterButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
     paddingHorizontal: 16,
     paddingVertical: 9,
     borderRadius: 20,
@@ -966,7 +1001,7 @@ const styles = StyleSheet.create({
 
   logsContent: {
     paddingHorizontal: 20,
-    paddingBottom: 35,
+    paddingBottom: 100,
   },
 
   resultsHeader: {

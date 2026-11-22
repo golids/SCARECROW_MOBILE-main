@@ -6,12 +6,19 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  Modal,
+  ActivityIndicator,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker, {
+  DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
+
+import { useLanguage } from "../context/LanguageContext";
+
 import {
-  Device as DbDevice,
+  Device,
   DetectionLog,
   fetchDevices,
   fetchDetectionLogs,
@@ -21,7 +28,7 @@ import {
 } from "../../lib/devices";
 
 /* -------------------------------------------------------------------------- */
-/*                                  COLORS                                    */
+/*                                   COLORS                                   */
 /* -------------------------------------------------------------------------- */
 
 const COLORS = {
@@ -33,6 +40,7 @@ const COLORS = {
   gold: "#D9B83F",
   lightGold: "#FBF7E7",
   gray: "#808080",
+  muted: "#849084",
   lightGray: "#F5F5F5",
   border: "#E5E9D2",
   red: "#D32F2F",
@@ -40,619 +48,555 @@ const COLORS = {
 };
 
 /* -------------------------------------------------------------------------- */
-/*                                   TYPES                                    */
+/*                                    TYPES                                   */
 /* -------------------------------------------------------------------------- */
 
-type DeviceStatus = "Active" | "Inactive";
+type StatsPreset = "all" | "today" | "yesterday" | "custom";
 
-// UI shape of a device row (built from the Supabase `devices` table)
-type Device = {
-  id: string;
-  name: string;
-  status: DeviceStatus;
-  lastSeen: string | null; // ISO timestamp from devices.last_seen
+type StatCardProps = {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: number | string;
+  note: string;
+  tone?: "green" | "gold" | "red";
 };
 
-type RangePreset = "7d" | "30d" | "all" | "custom";
-
 /* -------------------------------------------------------------------------- */
-/*                                  HELPERS                                   */
+/*                                   HELPERS                                  */
 /* -------------------------------------------------------------------------- */
 
-function startOfDay(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+function isBirdDetection(log: DetectionLog) {
+  return log.event_type?.toLowerCase() === "bird_detected";
 }
 
-function isSameDay(a: Date, b: Date) {
-  return startOfDay(a).getTime() === startOfDay(b).getTime();
+function isOfflineEvent(log: DetectionLog) {
+  const event = `${log.event_type} ${log.label}`.toLowerCase();
+
+  return event.includes("offline") || event.includes("disconnect");
 }
 
-function addDays(d: Date, n: number) {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n);
-  return x;
+function startOfToday() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date;
 }
 
-function formatDate(d: Date) {
-  return d.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
+function isSameDay(value: string | Date, target: Date) {
+  const date = value instanceof Date ? value : new Date(value);
 
-// "just now", "5 min ago", "3 h ago", "yesterday, 4:10 PM", "Oct 12, 4:10 PM"
-function formatLastSeen(iso: string | null) {
-  if (!iso) return "never";
-
-  const then = new Date(iso);
-  const diffSec = Math.max(0, Math.floor((Date.now() - then.getTime()) / 1000));
-
-  if (diffSec < 60) return "just now";
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} min ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} h ago`;
-
-  const time = then.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  const yesterday = startOfDay(new Date());
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  if (isSameDay(then, yesterday)) return `yesterday, ${time}`;
-
-  const date = then.toLocaleDateString([], { month: "short", day: "numeric" });
-  return `${date}, ${time}`;
-}
-
-function formatHour(hour: number) {
-  const suffix = hour >= 12 ? "PM" : "AM";
-  const h = hour % 12 === 0 ? 12 : hour % 12;
-  return `${h} ${suffix}`;
-}
-
-/* -------------------------------------------------------------------------- */
-/*                              SCARECROW ICON                                */
-/* -------------------------------------------------------------------------- */
-
-function ScarecrowIcon({
-  size = 36,
-  color = COLORS.primary,
-}: {
-  size?: number;
-  color?: string;
-}) {
-  const s = size / 60;
+  if (Number.isNaN(date.getTime())) return false;
 
   return (
-    <View
-      style={{
-        width: size,
-        height: size * 1.1,
-        alignItems: "center",
-      }}
-    >
-      {/* Hat brim */}
-      <View
-        style={{
-          width: 44 * s,
-          height: 5 * s,
-          backgroundColor: color,
-          borderRadius: 3,
-          marginTop: 2 * s,
-        }}
-      />
-
-      {/* Hat top */}
-      <View
-        style={{
-          width: 6 * s,
-          height: 8 * s,
-          backgroundColor: COLORS.darkGreen,
-          borderRadius: 2,
-        }}
-      />
-
-      {/* Head */}
-      <View
-        style={{
-          width: 18 * s,
-          height: 22 * s,
-          backgroundColor: color,
-          borderRadius: 4,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        {/* Eyes */}
-        <View style={{ flexDirection: "row", gap: 5 * s }}>
-          <View
-            style={{
-              width: 4 * s,
-              height: 4 * s,
-              backgroundColor: COLORS.gold,
-              borderRadius: 2,
-            }}
-          />
-          <View
-            style={{
-              width: 4 * s,
-              height: 4 * s,
-              backgroundColor: COLORS.gold,
-              borderRadius: 2,
-            }}
-          />
-        </View>
-      </View>
-
-      {/* Arms */}
-      <View
-        style={{
-          width: 52 * s,
-          height: 5 * s,
-          backgroundColor: color,
-          borderRadius: 3,
-          marginTop: -14 * s,
-        }}
-      />
-
-      {/* Legs */}
-      <View style={{ flexDirection: "row", gap: 6 * s, marginTop: 1 * s }}>
-        <View
-          style={{
-            width: 6 * s,
-            height: 14 * s,
-            backgroundColor: color,
-            borderRadius: 2,
-          }}
-        />
-        <View
-          style={{
-            width: 6 * s,
-            height: 14 * s,
-            backgroundColor: color,
-            borderRadius: 2,
-          }}
-        />
-      </View>
-    </View>
+    date.getFullYear() === target.getFullYear() &&
+    date.getMonth() === target.getMonth() &&
+    date.getDate() === target.getDate()
   );
 }
 
+function getTargetDate(
+  preset: StatsPreset,
+  customDate: Date | null
+): Date | null {
+  if (preset === "today") return new Date();
+
+  if (preset === "yesterday") {
+    const date = new Date();
+    date.setDate(date.getDate() - 1);
+    return date;
+  }
+
+  if (preset === "custom") return customDate;
+
+  return null; // "all" -> no date filtering
+}
+
+function formatLastSeen(
+  value: string | null,
+  t: (key: "never" | "unknown" | "justNow" | "minAgo" | "hrAgo" | "yesterday" | "daysAgo") => string
+) {
+  if (!value) return t("never");
+
+  const date = new Date(value);
+  const timestamp = date.getTime();
+
+  if (Number.isNaN(timestamp)) return t("unknown");
+
+  const seconds = Math.max(
+    0,
+    Math.floor((Date.now() - timestamp) / 1000)
+  );
+
+  if (seconds < 60) return t("justNow");
+
+  if (seconds < 3600) {
+    return `${Math.floor(seconds / 60)} ${t("minAgo")}`;
+  }
+
+  if (seconds < 86400) {
+    return `${Math.floor(seconds / 3600)} ${t("hrAgo")}`;
+  }
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (date.toDateString() === yesterday.toDateString()) {
+    return `${t("yesterday")}, ${date.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    })}`;
+  }
+
+  return date.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatPeakTime(hour: number) {
+  return `${String(hour).padStart(2, "0")}:00`;
+}
+
 /* -------------------------------------------------------------------------- */
-/*                              STAT TILE                                     */
+/*                                 STAT CARD                                  */
 /* -------------------------------------------------------------------------- */
 
-function StatTile({
+function StatCard({
   icon,
   label,
   value,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  value: string;
-}) {
+  note,
+  tone = "green",
+}: StatCardProps) {
+  const iconStyle =
+    tone === "gold"
+      ? styles.statIconGold
+      : tone === "red"
+        ? styles.statIconRed
+        : styles.statIconGreen;
+
+  const iconColor =
+    tone === "gold"
+      ? "#B08A22"
+      : tone === "red"
+        ? COLORS.red
+        : COLORS.primary;
+
   return (
-    <View style={styles.statTile}>
-      <View style={styles.statIconWrap}>
-        <Ionicons name={icon} size={16} color={COLORS.primary} />
+    <View style={styles.statCard}>
+      <View style={[styles.statIcon, iconStyle]}>
+        <Ionicons name={icon} size={19} color={iconColor} />
       </View>
 
       <Text style={styles.statLabel}>{label}</Text>
 
-      <Text style={[styles.statValue, !value && styles.emptyValue]}>
-        {value || "—"}
-      </Text>
+      <Text style={styles.statValue}>{value}</Text>
+
+      <Text style={styles.statNote}>{note}</Text>
     </View>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/*                         DATE RANGE CALENDAR MODAL                          */
+/*                              DEVICE STATUS ROW                            */
 /* -------------------------------------------------------------------------- */
 
-const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
-
-function RangeCalendarModal({
-  visible,
-  initialStart,
-  initialEnd,
-  onApply,
-  onClose,
+function DeviceStatusRow({
+  device,
+  selected,
+  onPress,
 }: {
-  visible: boolean;
-  initialStart: Date;
-  initialEnd: Date;
-  onApply: (start: Date, end: Date) => void;
-  onClose: () => void;
+  device: Device;
+  selected: boolean;
+  onPress: () => void;
 }) {
-  const [month, setMonth] = React.useState(startOfDay(initialEnd));
-  const [start, setStart] = React.useState<Date | null>(null);
-  const [end, setEnd] = React.useState<Date | null>(null);
-
-  React.useEffect(() => {
-    if (visible) {
-      setStart(startOfDay(initialStart));
-      setEnd(startOfDay(initialEnd));
-      setMonth(startOfDay(initialEnd));
-    }
-  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const today = startOfDay(new Date());
-  const year = month.getFullYear();
-  const m = month.getMonth();
-  const firstWeekday = new Date(year, m, 1).getDay();
-  const daysInMonth = new Date(year, m + 1, 0).getDate();
-
-  const cells: (Date | null)[] = [];
-  for (let i = 0; i < firstWeekday; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, m, d));
-  while (cells.length % 7 !== 0) cells.push(null);
-
-  const rows: (Date | null)[][] = [];
-  for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
-
-  const isCurrentMonth =
-    year === today.getFullYear() && m === today.getMonth();
-
-  const pickDay = (day: Date) => {
-    if (!start || (start && end)) {
-      // first tap (or starting over)
-      setStart(day);
-      setEnd(null);
-    } else if (day < start) {
-      setEnd(start);
-      setStart(day);
-    } else {
-      setEnd(day);
-    }
-  };
+  const { t } = useLanguage();
+  const online = isRecentlyAlive(device);
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
+    <TouchableOpacity
+      style={[
+        styles.deviceSelect,
+        selected && styles.deviceSelectSelected,
+      ]}
+      onPress={onPress}
+      activeOpacity={0.75}
     >
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>Select date range</Text>
-          <Text style={styles.modalHint}>
-            {start
-              ? `${formatDate(start)}${
-                  end ? ` – ${formatDate(end)}` : " – tap an end date"
-                }`
-              : "Tap a start date"}
+      <View style={styles.deviceRow}>
+        <View
+          style={[
+            styles.deviceIcon,
+            !online && styles.deviceIconOffline,
+          ]}
+        >
+          <Ionicons
+            name="hardware-chip-outline"
+            size={20}
+            color={online ? COLORS.primary : COLORS.gray}
+          />
+        </View>
+
+        <View style={styles.deviceMain}>
+          <Text style={styles.deviceName} numberOfLines={1}>
+            {device.name}
           </Text>
 
-          {/* Month navigation */}
-          <View style={styles.calHeader}>
-            <TouchableOpacity
-              style={styles.calNavBtn}
-              onPress={() => setMonth(new Date(year, m - 1, 1))}
-            >
-              <Ionicons name="chevron-back" size={18} color={COLORS.primary} />
-            </TouchableOpacity>
+          <Text style={styles.deviceDetails} numberOfLines={2}>
+            {device.location || t("locationMissing")} ·{" "}
+            {formatLastSeen(device.last_seen, t)}
+          </Text>
+        </View>
 
-            <Text style={styles.calTitle}>
-              {month.toLocaleDateString([], { month: "long", year: "numeric" })}
-            </Text>
+        <View
+          style={[
+            styles.statusBadge,
+            online ? styles.statusOnline : styles.statusOffline,
+          ]}
+        >
+          <View
+            style={[
+              styles.statusDot,
+              online ? styles.dotOnline : styles.dotOffline,
+            ]}
+          />
 
-            <TouchableOpacity
-              style={[styles.calNavBtn, isCurrentMonth && { opacity: 0.3 }]}
-              disabled={isCurrentMonth}
-              onPress={() => setMonth(new Date(year, m + 1, 1))}
-            >
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={COLORS.primary}
-              />
-            </TouchableOpacity>
-          </View>
-
-          {/* Weekday labels */}
-          <View style={styles.calRow}>
-            {WEEKDAYS.map((w, i) => (
-              <Text key={i} style={styles.calWeekday}>
-                {w}
-              </Text>
-            ))}
-          </View>
-
-          {/* Days */}
-          {rows.map((row, ri) => (
-            <View key={ri} style={styles.calRow}>
-              {row.map((day, ci) => {
-                if (!day) return <View key={ci} style={styles.calCell} />;
-
-                const future = day > today;
-                const isEdge =
-                  (start && isSameDay(day, start)) ||
-                  (end && isSameDay(day, end));
-                const inRange =
-                  start && end && day >= start && day <= end && !isEdge;
-
-                return (
-                  <TouchableOpacity
-                    key={ci}
-                    style={[
-                      styles.calCell,
-                      inRange && styles.calCellInRange,
-                      isEdge && styles.calCellEdge,
-                      future && { opacity: 0.25 },
-                    ]}
-                    disabled={future}
-                    activeOpacity={0.7}
-                    onPress={() => pickDay(day)}
-                  >
-                    <Text
-                      style={[
-                        styles.calDayText,
-                        isEdge && styles.calDayTextEdge,
-                      ]}
-                    >
-                      {day.getDate()}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          ))}
-
-          {/* Buttons */}
-          <View style={styles.modalActions}>
-            <TouchableOpacity style={styles.modalCancel} onPress={onClose}>
-              <Text style={styles.modalCancelText}>Cancel</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.modalApply, !start && { opacity: 0.4 }]}
-              disabled={!start}
-              onPress={() => start && onApply(start, end ?? start)}
-            >
-              <Text style={styles.modalApplyText}>Apply</Text>
-            </TouchableOpacity>
-          </View>
+          <Text
+            style={[
+              styles.statusText,
+              online ? styles.textOnline : styles.textOffline,
+            ]}
+          >
+            {online ? t("online") : t("offline")}
+          </Text>
         </View>
       </View>
-    </Modal>
+
+      <View style={styles.deviceSelectionFooter}>
+        <Text
+          style={[
+            styles.selectionText,
+            selected && styles.selectionTextSelected,
+          ]}
+        >
+          {selected ? t("selected") : t("viewStatistics")}
+        </Text>
+
+        <Ionicons
+          name={selected ? "chevron-up" : "chevron-down"}
+          size={15}
+          color={selected ? COLORS.primary : COLORS.gray}
+        />
+      </View>
+    </TouchableOpacity>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/*                              HOME SCREEN                                   */
+/*                            DEVICE STAT TILE                               */
+/* -------------------------------------------------------------------------- */
+
+function DeviceStatTile({
+  icon,
+  label,
+  value,
+  tone = "green",
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string | number;
+  tone?: "green" | "gold" | "red";
+}) {
+  const iconColor =
+    tone === "gold"
+      ? "#B08A22"
+      : tone === "red"
+        ? COLORS.red
+        : COLORS.primary;
+
+  const iconBackground =
+    tone === "gold"
+      ? COLORS.lightGold
+      : tone === "red"
+        ? COLORS.lightRed
+        : COLORS.veryLightGreen;
+
+  return (
+    <View style={styles.deviceStatTile}>
+      <View
+        style={[
+          styles.deviceStatIcon,
+          { backgroundColor: iconBackground },
+        ]}
+      >
+        <Ionicons name={icon} size={17} color={iconColor} />
+      </View>
+
+      <Text style={styles.deviceStatLabel}>{label}</Text>
+
+      <Text style={styles.deviceStatValue}>{value}</Text>
+    </View>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                HOME SCREEN                                 */
 /* -------------------------------------------------------------------------- */
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
 
-  /*
-   * Devices come from Supabase (`devices`), and statistics are computed from
-   * the detection logs (same source as the Logs tab).
-   */
+  const [devices, setDevices] = React.useState<Device[]>([]);
+  const [logs, setLogs] = React.useState<DetectionLog[]>([]);
 
-  /* ----------------------------- Devices data ---------------------------- */
+  const [selectedDeviceId, setSelectedDeviceId] =
+    React.useState<string | null>(null);
 
-  const [dbDevices, setDbDevices] = React.useState<DbDevice[]>([]);
+  const [preset, setPreset] = React.useState<StatsPreset>("all");
+  const [customDate, setCustomDate] = React.useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = React.useState(false);
 
-  // Re-render every 15s so Active/Inactive follows `last_seen` even when
-  // nothing else changes (isRecentlyAlive compares against Date.now()).
-  const [, setTick] = React.useState(0);
+  const [loading, setLoading] = React.useState(true);
+  const [refreshing, setRefreshing] = React.useState(false);
+
+  // Re-render every 15 seconds so device status follows last_seen.
+  const [tick, setTick] = React.useState(0);
+
+  /* ----------------------------- LOAD DEVICES ---------------------------- */
 
   const loadDevices = React.useCallback(async () => {
-    try {
-      const data = await fetchDevices();
-      setDbDevices(data);
-    } catch (e) {
-      console.warn("Failed to load devices:", e);
-    }
+    const data = await fetchDevices();
+    setDevices(data);
   }, []);
 
-  React.useEffect(() => {
-    loadDevices();
+  /* ------------------------------ LOAD LOGS ------------------------------ */
 
-    // Live update when a Pi sends a heartbeat or its IP changes
-    const unsubscribe = subscribeToDevices(loadDevices);
-    const timer = setInterval(() => setTick((t) => t + 1), 15_000);
+  const loadLogs = React.useCallback(async () => {
+    const data = await fetchDetectionLogs(500);
+    setLogs(data);
+  }, []);
 
-    return () => {
-      unsubscribe();
-      clearInterval(timer);
-    };
-  }, [loadDevices]);
-
-  // UI list: every registered device with Active / Inactive status.
-  // Inactive devices come first (those are the ones maintenance cares about),
-  // then alphabetical within each group.
-  const devices: Device[] = dbDevices
-    .map((d) => ({
-      id: d.id,
-      name: d.name,
-      status: (isRecentlyAlive(d) ? "Active" : "Inactive") as DeviceStatus,
-      lastSeen: d.last_seen,
-    }))
-    .sort((a, b) => {
-      if (a.status !== b.status) return a.status === "Inactive" ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-
-  const refreshAll = async () => {
-    try {
-      const [logData] = await Promise.all([fetchDetectionLogs(500), loadDevices()]);
-      setLogs(logData);
-    } catch (e) {
-      console.warn("Failed to refresh:", e);
-    }
-  };
-
-  /* ------------------------------ Logs data ------------------------------ */
-
-  const [logs, setLogs] = React.useState<DetectionLog[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = React.useState<
-    string | null
-  >(null);
-
-  // Statistics date filter
-  const [preset, setPreset] = React.useState<RangePreset>("7d");
-  const [customRange, setCustomRange] = React.useState<{
-    start: Date;
-    end: Date;
-  } | null>(null);
-  const [pickerOpen, setPickerOpen] = React.useState(false);
+  /* --------------------------- INITIAL LOADING -------------------------- */
 
   React.useEffect(() => {
     let mounted = true;
 
-    (async () => {
+    async function initialize() {
       try {
-        const data = await fetchDetectionLogs(500);
-        if (mounted) setLogs(data);
-      } catch (e) {
-        console.warn("Failed to load detection logs:", e);
-      }
-    })();
+        const [deviceData, logData] = await Promise.all([
+          fetchDevices(),
+          fetchDetectionLogs(500),
+        ]);
 
-    // Live-append new detections / events
-    const unsubscribe = subscribeToDetectionLogs((newLog) => {
-      setLogs((prev) => [newLog, ...prev]);
-    });
+        if (!mounted) return;
+
+        setDevices(deviceData);
+        setLogs(logData);
+      } catch (error) {
+        console.warn("Failed to load Home dashboard:", error);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    void initialize();
 
     return () => {
       mounted = false;
-      unsubscribe();
     };
   }, []);
 
-  /* --------------------------- Bird summary banner ----------------------- */
+  /* --------------------------- REALTIME DEVICES -------------------------- */
 
-  const now = new Date();
-  const allBirdLogs = logs.filter((l) => l.event_type === "bird_detected");
+  React.useEffect(() => {
+    const unsubscribe = subscribeToDevices(() => {
+      void loadDevices().catch((error) => {
+        console.warn("Failed to refresh devices:", error);
+      });
+    });
 
-  const birdsToday = allBirdLogs.filter((l) =>
-    isSameDay(new Date(l.created_at), now)
+    return unsubscribe;
+  }, [loadDevices]);
+
+  /* ---------------------------- REALTIME LOGS ---------------------------- */
+
+  React.useEffect(() => {
+    const unsubscribe = subscribeToDetectionLogs((newLog) => {
+      setLogs((previous) => {
+        if (previous.some((item) => item.id === newLog.id)) {
+          return previous;
+        }
+
+        return [newLog, ...previous].slice(0, 500);
+      });
+    });
+
+    return unsubscribe;
+  }, []);
+
+  /* ---------------------------- STATUS REFRESH --------------------------- */
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setTick((value) => value + 1);
+    }, 15_000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  /* ----------------------------- MANUAL REFRESH -------------------------- */
+
+  const refreshAll = async () => {
+    if (refreshing) return;
+
+    setRefreshing(true);
+
+    try {
+      const [deviceData, logData] = await Promise.all([
+        fetchDevices(),
+        fetchDetectionLogs(500),
+      ]);
+
+      setDevices(deviceData);
+      setLogs(logData);
+    } catch (error) {
+      console.warn("Failed to refresh dashboard:", error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  /* ---------------------------- DATE PICKER ------------------------------ */
+
+  const handleDateChange = (event: DateTimePickerEvent, date?: Date) => {
+    setShowDatePicker(false);
+
+    if (event.type === "set" && date) {
+      setCustomDate(date);
+      setPreset("custom");
+    }
+  };
+
+  /* ----------------------------- DEVICE ORDER ---------------------------- */
+
+  const sortedDevices = React.useMemo(() => {
+    return [...devices].sort((a, b) => {
+      const aOnline = isRecentlyAlive(a);
+      const bOnline = isRecentlyAlive(b);
+
+      return Number(bOnline) - Number(aOnline);
+    });
+  }, [devices, tick]);
+
+  const selectedDevice =
+    devices.find((device) => device.id === selectedDeviceId) ?? null;
+
+  /* ---------------------------- FLEET SUMMARY ---------------------------- */
+
+  const onlineDevices = devices.filter((device) =>
+    isRecentlyAlive(device)
   ).length;
 
-  const weekStart = startOfDay(now);
+  const offlineDevices = devices.length - onlineDevices;
+
+  /* --------------------------- BIRD DETECTIONS ---------------------------- */
+
+  const today = new Date();
+
+  const allBirdLogs = logs.filter(isBirdDetection);
+
+  const allBirdDetectionsToday = allBirdLogs.filter((log) => {
+    return (
+      new Date(log.created_at).toDateString() === today.toDateString()
+    );
+  }).length;
+
+  const weekStart = startOfToday();
   weekStart.setDate(weekStart.getDate() - 6);
-  const birdsThisWeek = allBirdLogs.filter(
-    (l) => new Date(l.created_at) >= weekStart
-  ).length;
 
-  /* ------------------------- Selected device stats ----------------------- */
+  const allBirdDetectionsThisWeek = allBirdLogs.filter((log) => {
+    const date = new Date(log.created_at);
+    return date >= weekStart && date <= new Date();
+  }).length;
 
-  const selectedDevice = devices.find((d) => d.id === selectedDeviceId) ?? null;
+  /* ----------------------- SELECTED DEVICE STATISTICS -------------------- */
 
-  const stats = React.useMemo(() => {
-    if (!selectedDevice) return null;
+  const selectedDeviceStats = React.useMemo(() => {
+    if (!selectedDeviceId) return null;
 
-    const todayStart = startOfDay(new Date());
-    const allDeviceLogs = logs.filter((l) => l.device_id === selectedDevice.id);
+    const selectedLogs = logs.filter(
+      (log) => log.device_id === selectedDeviceId
+    );
 
-    // ---- Date range ----
-    let rangeStart: Date;
-    let rangeEnd: Date = todayStart;
+    let filteredLogs: DetectionLog[] = selectedLogs;
 
-    if (preset === "custom" && customRange) {
-      rangeStart = startOfDay(customRange.start);
-      rangeEnd = startOfDay(customRange.end);
-    } else if (preset === "30d") {
-      rangeStart = addDays(todayStart, -29);
-    } else if (preset === "all") {
-      const times = allDeviceLogs.map((l) => new Date(l.created_at).getTime());
-      rangeStart = times.length
-        ? startOfDay(new Date(Math.min(...times)))
-        : todayStart;
-    } else {
-      rangeStart = addDays(todayStart, -6);
+    const targetDate = getTargetDate(preset, customDate);
+
+    if (targetDate) {
+      filteredLogs = selectedLogs.filter((log) =>
+        isSameDay(log.created_at, targetDate)
+      );
     }
 
-    const rangeEndExclusive = addDays(rangeEnd, 1);
-    const inRange = (l: DetectionLog) => {
-      const t = new Date(l.created_at);
-      return t >= rangeStart && t < rangeEndExclusive;
-    };
+    const birdLogs = filteredLogs.filter(isBirdDetection);
+    const offlineLogs = filteredLogs.filter(isOfflineEvent);
 
-    // ---- Filtered logs ----
-    const deviceLogs = allDeviceLogs.filter(inRange);
-    const birdLogs = deviceLogs.filter((l) => l.event_type === "bird_detected");
-    const offlineLogs = deviceLogs.filter((l) => l.event_type === "offline");
+    const detectedToday = selectedLogs.filter((log) => {
+      return (
+        isBirdDetection(log) &&
+        new Date(log.created_at).toDateString() === new Date().toDateString()
+      );
+    }).length;
 
-    // "Detected Today" always means today, regardless of the filter
-    const detectedToday = allDeviceLogs.filter(
-      (l) =>
-        l.event_type === "bird_detected" &&
-        isSameDay(new Date(l.created_at), todayStart)
-    ).length;
+    let averagePerDay = 0;
 
-    // Average detections per day (over the days that have any events)
-    const activeDays = new Set(
-      deviceLogs.map((l) => startOfDay(new Date(l.created_at)).getTime())
-    ).size;
-    const avgPerDay =
-      birdLogs.length > 0
-        ? (birdLogs.length / Math.max(activeDays, 1)).toFixed(1)
-        : "";
+    if (filteredLogs.length > 0) {
+      if (preset === "all") {
+        const uniqueDays = new Set(
+          filteredLogs.map((log) =>
+            new Date(log.created_at).toDateString()
+          )
+        ).size;
 
-    // Peak hour of bird detections
-    const hourCounts: Record<number, number> = {};
-    birdLogs.forEach((l) => {
-      const h = new Date(l.created_at).getHours();
-      hourCounts[h] = (hourCounts[h] ?? 0) + 1;
-    });
-    let peakHour = -1;
-    let peakCount = 0;
-    Object.entries(hourCounts).forEach(([h, c]) => {
-      if (c > peakCount) {
-        peakCount = c;
-        peakHour = Number(h);
-      }
-    });
-
-    // ---- Chart bars: daily up to 14 days, otherwise grouped (max 8 bars) ----
-    const totalDays =
-      Math.round((rangeEnd.getTime() - rangeStart.getTime()) / 86400000) + 1;
-    const bucketSize = totalDays <= 14 ? 1 : Math.ceil(totalDays / 8);
-
-    const weekly: { day: string; count: number }[] = [];
-    for (let i = 0; i < totalDays; i += bucketSize) {
-      const bStart = addDays(rangeStart, i);
-      const bEnd = addDays(rangeStart, Math.min(i + bucketSize, totalDays));
-
-      const count = birdLogs.filter((l) => {
-        const t = new Date(l.created_at);
-        return t >= bStart && t < bEnd;
-      }).length;
-
-      let label: string;
-      if (bucketSize > 1) {
-        label = bStart.toLocaleDateString([], { month: "short", day: "numeric" });
-      } else if (totalDays <= 7) {
-        label = bStart.toLocaleDateString([], { weekday: "short" });
+        averagePerDay =
+          uniqueDays > 0
+            ? Number((birdLogs.length / uniqueDays).toFixed(1))
+            : 0;
       } else {
-        label = String(bStart.getDate());
+        // A single day was selected, so the average is that day's count.
+        averagePerDay = birdLogs.length;
       }
+    }
 
-      weekly.push({ day: label, count });
+    let peakTime = "—";
+
+    if (birdLogs.length > 0) {
+      const hours = new Array(24).fill(0);
+
+      birdLogs.forEach((log) => {
+        const hour = new Date(log.created_at).getHours();
+        hours[hour] += 1;
+      });
+
+      const peakHour = hours.indexOf(Math.max(...hours));
+      peakTime = formatPeakTime(peakHour);
     }
 
     return {
-      totalEvents: String(deviceLogs.length),
-      birdAlerts: String(birdLogs.length),
-      offlineEvents: String(offlineLogs.length),
-      detectedToday: String(detectedToday),
-      avgPerDay,
-      peakTime: peakHour >= 0 ? formatHour(peakHour) : "",
-      weekly,
-      bucketSize,
-      rangeStart,
-      rangeEnd,
+      totalEvents: filteredLogs.length,
+      birdAlerts: birdLogs.length,
+      offlineEvents: offlineLogs.length,
+      detectedToday,
+      averagePerDay,
+      peakTime,
+      hasRecords: filteredLogs.length > 0,
     };
-  }, [logs, selectedDevice, preset, customRange]);
+  }, [logs, selectedDeviceId, preset, customDate, tick]);
 
-  const activeCount = devices.filter((d) => d.status === "Active").length;
-  const inactiveCount = devices.length - activeCount;
-
-  const maxWeekly = Math.max(...(stats?.weekly.map((d) => d.count) ?? [0]), 1);
-  const BAR_MAX_HEIGHT = 90;
+  /* ---------------------------------------------------------------------- */
+  /*                                  RENDER                                */
+  /* ---------------------------------------------------------------------- */
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -660,403 +604,337 @@ export default function HomeScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        bounces
       >
-        {/* ---------------------------------------------------------------- */}
-        {/* Header (Welcome + Add Button)                                     */}
-        {/* ---------------------------------------------------------------- */}
+        {/* HEADER */}
 
         <View style={styles.header}>
-          <View>
-            <Text style={styles.welcome}>Device Monitoring</Text>
-            <Text style={styles.headerSubtitle}>
-              Admin overview of all devices
+          <View style={styles.headerText}>
+            <Text style={styles.pageTitle}>{t("overview")}</Text>
+
+            <Text style={styles.pageSubtitle}>
+              {t("overviewDesc")}
             </Text>
           </View>
 
           <TouchableOpacity
-            style={styles.addBtn}
-            activeOpacity={0.8}
+            style={styles.refreshButton}
             onPress={refreshAll}
+            disabled={refreshing}
+            activeOpacity={0.75}
           >
-            <Ionicons name="refresh" size={22} color={COLORS.white} />
+            {refreshing ? (
+              <ActivityIndicator size="small" color={COLORS.white} />
+            ) : (
+              <Ionicons
+                name="refresh-outline"
+                size={20}
+                color={COLORS.white}
+              />
+            )}
           </TouchableOpacity>
         </View>
 
-        {/* ---------------------------------------------------------------- */}
-        {/* Fleet Overview */}
-        {/* ---------------------------------------------------------------- */}
+        {/* SUMMARY CARDS */}
 
-        <View style={styles.fleetCard}>
-          <View style={styles.fleetItem}>
-            <View style={styles.iconCircle}>
-              <Ionicons
-                name="hardware-chip-outline"
-                size={18}
-                color={COLORS.primary}
-              />
-            </View>
-            <Text style={styles.fleetValue}>{devices.length}</Text>
-            <Text style={styles.fleetLabel}>Total Devices</Text>
-          </View>
+        <View style={styles.summaryGrid}>
+          <StatCard
+            icon="hardware-chip-outline"
+            label={t("registered")}
+            value={loading ? "—" : devices.length}
+            note={t("registeredNote")}
+            tone="green"
+          />
 
-          <View style={styles.dividerVert} />
+          <StatCard
+            icon="wifi-outline"
+            label={t("onlineDevices")}
+            value={loading ? "—" : onlineDevices}
+            note={`${offlineDevices} ${t("offline")}`}
+            tone="gold"
+          />
 
-          <View style={styles.fleetItem}>
-            <View style={styles.iconCircle}>
-              <Ionicons
-                name="checkmark-circle-outline"
-                size={18}
-                color={COLORS.primary}
-              />
-            </View>
-            <Text style={styles.fleetValue}>{activeCount}</Text>
-            <Text style={styles.fleetLabel}>Active</Text>
-          </View>
+          <StatCard
+            icon="radio-outline"
+            label={t("birdsToday")}
+            value={loading ? "—" : allBirdDetectionsToday}
+            note={`${allBirdDetectionsThisWeek} ${t("thisWeek")}`}
+            tone="green"
+          />
 
-          <View style={styles.dividerVert} />
-
-          <View style={styles.fleetItem}>
-            <View
-              style={[
-                styles.iconCircle,
-                inactiveCount > 0 && styles.iconCircleAlert,
-              ]}
-            >
-              <Ionicons
-                name="alert-circle-outline"
-                size={18}
-                color={inactiveCount > 0 ? COLORS.red : COLORS.gray}
-              />
-            </View>
-            <Text
-              style={[
-                styles.fleetValue,
-                inactiveCount > 0 ? styles.fleetValueAlert : styles.fleetValueMuted,
-              ]}
-            >
-              {inactiveCount}
-            </Text>
-            <Text style={styles.fleetLabel}>Inactive</Text>
-          </View>
+          <StatCard
+            icon="heart-dislike-outline"
+            label={t("offlineDevices")}
+            value={loading ? "—" : offlineDevices}
+            note={t("deviceActivity")}
+            tone="red"
+          />
         </View>
 
-        {/* ---------------------------------------------------------------- */}
-        {/* Device List                                                       */}
-        {/* ---------------------------------------------------------------- */}
+        {/* DEVICE STATUS PANEL */}
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Device List</Text>
+        <View style={styles.panel}>
+          <View style={styles.panelHeader}>
+            <View style={styles.panelHeading}>
+              <Text style={styles.panelTitle}>
+                {t("deviceStatus")}
+              </Text>
+
+              <Text style={styles.panelSubtitle}>
+                {t("liveHeartbeat")}
+              </Text>
+            </View>
 
             <TouchableOpacity
+              style={styles.viewAllButton}
               activeOpacity={0.7}
               onPress={() =>
                 router.push({
                   pathname: "/settings",
-                  params: { section: "devices", t: String(Date.now()) },
+                  params: {
+                    section: "devices",
+                    t: String(Date.now()),
+                  },
                 } as any)
               }
             >
-              <Text style={styles.sectionLink}>Manage &gt;</Text>
+              <Text style={styles.viewAllText}>
+                {t("devices")}
+              </Text>
+
+              <Ionicons
+                name="chevron-forward"
+                size={14}
+                color={COLORS.primary}
+              />
             </TouchableOpacity>
           </View>
 
-          {/* Summary counts */}
-          {devices.length > 0 && (
-            <Text style={styles.deviceSummary}>
-              Inactive devices are listed first · tap a device to see its
-              statistics
-            </Text>
-          )}
-
-          {devices.length > 0 ? (
-            devices.map((device) => {
-              const isActive = device.status === "Active";
-              const isSelected = device.id === selectedDeviceId;
-
-              return (
-                <TouchableOpacity
-                  key={device.id}
-                  style={[
-                    styles.deviceRow,
-                    isSelected && styles.deviceRowSelected,
-                  ]}
-                  activeOpacity={0.75}
-                  onPress={() =>
-                    // Tap again to hide the statistics
-                    setSelectedDeviceId(isSelected ? null : device.id)
-                  }
-                >
-                  <View
-                    style={[
-                      styles.deviceIconWrap,
-                      !isActive && styles.deviceIconWrapInactive,
-                    ]}
-                  >
-                    <ScarecrowIcon
-                      size={36}
-                      color={isActive ? COLORS.primary : COLORS.gray}
-                    />
-                  </View>
-
-                  <View style={styles.deviceInfo}>
-                    <Text style={styles.deviceName} numberOfLines={1}>
-                      {device.name}
-                    </Text>
-
-                    <View style={styles.statusRow}>
-                      <View
-                        style={[
-                          styles.statusDot,
-                          !isActive && styles.statusDotInactive,
-                        ]}
-                      />
-
-                      <Text
-                        style={[
-                          styles.deviceStatus,
-                          !isActive && styles.deviceStatusInactive,
-                        ]}
-                      >
-                        {`Last seen ${formatLastSeen(device.lastSeen)}`}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      isActive
-                        ? styles.statusBadgeActive
-                        : styles.statusBadgeInactive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.statusBadgeText,
-                        isActive
-                          ? styles.statusBadgeTextActive
-                          : styles.statusBadgeTextInactive,
-                      ]}
-                    >
-                      {device.status}
-                    </Text>
-                  </View>
-
-                  <Ionicons
-                    name={isSelected ? "chevron-down" : "chevron-forward"}
-                    size={18}
-                    color={COLORS.primary}
-                  />
-                </TouchableOpacity>
-              );
-            })
-          ) : (
-            <View style={[styles.emptyBox, styles.deviceEmptySpacing]}>
-              <Ionicons
-                name="hardware-chip-outline"
-                size={22}
-                color={COLORS.gray}
+          {loading ? (
+            <View style={styles.loadingState}>
+              <ActivityIndicator
+                size="small"
+                color={COLORS.primary}
               />
 
-              <Text style={styles.emptyBoxText}>
-                No devices registered yet.
+              <Text style={styles.loadingText}>
+                {t("loading")}
               </Text>
+            </View>
+          ) : sortedDevices.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="hardware-chip-outline"
+                size={30}
+                color="#A9B69F"
+              />
+
+              <Text style={styles.emptyTitle}>
+                {t("noDevices")}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.deviceList}>
+              {sortedDevices.map((device) => (
+                <DeviceStatusRow
+                  key={device.id}
+                  device={device}
+                  selected={selectedDeviceId === device.id}
+                  onPress={() =>
+                    setSelectedDeviceId((current) =>
+                      current === device.id ? null : device.id
+                    )
+                  }
+                />
+              ))}
             </View>
           )}
-
-          {/* ---------------------------------------------------------------- */}
-          {/* Bird Summary                                                     */}
-          {/* ---------------------------------------------------------------- */}
-
-          <View style={styles.birdBanner}>
-            <View style={styles.birdBannerLeft}>
-              <View style={styles.birdEmojiWrap}>
-                <Text style={styles.birdEmoji}>🐦‍⬛</Text>
-              </View>
-
-              <View>
-                <Text style={styles.birdBannerLabel}>All detections today</Text>
-                <Text style={styles.birdCountLarge}>{birdsToday}</Text>
-              </View>
-            </View>
-
-            <View style={styles.birdBannerRight}>
-              <Text style={styles.birdBannerLabel}>All detections this week</Text>
-              <Text style={styles.birdCountLarge}>{birdsThisWeek}</Text>
-            </View>
-          </View>
         </View>
 
-        {/* ---------------------------------------------------------------- */}
-        {/* Statistics (only when a device is selected)                       */}
-        {/* ---------------------------------------------------------------- */}
+        {/* SELECTED DEVICE STATISTICS */}
 
-        {selectedDevice && stats && (
-          <View style={styles.sectionLast}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Statistics</Text>
+        {selectedDevice && selectedDeviceStats && (
+          <View style={styles.panel}>
+            <View style={styles.panelHeader}>
+              <View style={styles.panelHeading}>
+                <Text style={styles.panelTitle}>
+                  {t("deviceStatistics")}
+                </Text>
 
-              <Text style={styles.statDeviceName} numberOfLines={1}>
-                {selectedDevice.name}
-              </Text>
+                <Text style={styles.panelSubtitle}>
+                  {t("statisticsFor")} {selectedDevice.name}
+                </Text>
+              </View>
             </View>
 
-            {/* Date range filter */}
+            {/* DATE FILTERS */}
+
             <View style={styles.filterRow}>
               {(
                 [
-                  ["7d", "Last 7 days"],
-                  ["30d", "Last 30 days"],
-                  ["all", "All time"],
-                ] as [RangePreset, string][]
-              ).map(([key, label]) => (
-                <TouchableOpacity
-                  key={key}
-                  style={[styles.chip, preset === key && styles.chipActive]}
-                  activeOpacity={0.8}
-                  onPress={() => setPreset(key)}
-                >
-                  <Text
+                  ["all", t("all")],
+                  ["today", t("today")],
+                  ["yesterday", t("yesterday")],
+                ] as [StatsPreset, string][]
+              ).map(([key, label]) => {
+                const active = preset === key;
+
+                return (
+                  <TouchableOpacity
+                    key={key}
                     style={[
-                      styles.chipText,
-                      preset === key && styles.chipTextActive,
+                      styles.filterButton,
+                      active && styles.filterButtonActive,
                     ]}
+                    activeOpacity={0.8}
+                    onPress={() => setPreset(key)}
                   >
-                    {label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      style={[
+                        styles.filterText,
+                        active && styles.filterTextActive,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
 
               <TouchableOpacity
-                style={[styles.chip, preset === "custom" && styles.chipActive]}
+                style={[
+                  styles.filterButton,
+                  preset === "custom" && styles.filterButtonActive,
+                ]}
                 activeOpacity={0.8}
-                onPress={() => setPickerOpen(true)}
+                onPress={() => setShowDatePicker(true)}
               >
                 <Ionicons
                   name="calendar-outline"
-                  size={13}
-                  color={preset === "custom" ? COLORS.white : COLORS.primary}
+                  size={12}
+                  color={preset === "custom" ? COLORS.white : "#526456"}
                 />
+
                 <Text
                   style={[
-                    styles.chipText,
-                    preset === "custom" && styles.chipTextActive,
+                    styles.filterText,
+                    preset === "custom" && styles.filterTextActive,
                   ]}
                 >
-                  Custom
+                  {preset === "custom" && customDate
+                    ? customDate.toLocaleDateString([], {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })
+                    : ("custom")}
                 </Text>
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.rangeSummary}>
-              Showing {formatDate(stats.rangeStart)}
-              {isSameDay(stats.rangeStart, stats.rangeEnd)
-                ? ""
-                : ` – ${formatDate(stats.rangeEnd)}`}
-            </Text>
-
-            {/* Stat tiles */}
-            <View style={styles.statGrid}>
-              <StatTile
-                icon="list-outline"
-                label="Total Events"
-                value={stats.totalEvents}
+            {showDatePicker && (
+              <DateTimePicker
+                value={customDate ?? new Date()}
+                mode="date"
+                display={Platform.OS === "ios" ? "inline" : "default"}
+                maximumDate={new Date()}
+                onChange={handleDateChange}
               />
-              <StatTile
+            )}
+
+            {/* STATISTICS GRID */}
+
+            <View style={styles.deviceStatsGrid}>
+              <DeviceStatTile
+                icon="pulse-outline"
+                label={t("totalEvents")}
+                value={selectedDeviceStats.totalEvents}
+                tone="green"
+              />
+
+              <DeviceStatTile
                 icon="alert-circle-outline"
-                label="Bird Alerts"
-                value={stats.birdAlerts}
+                label={t("birdAlerts")}
+                value={selectedDeviceStats.birdAlerts}
+                tone="green"
               />
-              <StatTile
-                icon="cloud-offline-outline"
-                label="Offline Events"
-                value={stats.offlineEvents}
+
+              <DeviceStatTile
+                icon="wifi-outline"
+                label={t("offlineEvents")}
+                value={selectedDeviceStats.offlineEvents}
+                tone="red"
               />
-              <StatTile
+
+              <DeviceStatTile
                 icon="eye-outline"
-                label="Detected Today"
-                value={stats.detectedToday}
+                label={t("detectedToday")}
+                value={selectedDeviceStats.detectedToday}
+                tone="gold"
               />
-              <StatTile
+
+              <DeviceStatTile
                 icon="trending-up-outline"
-                label="Avg. per Day"
-                value={stats.avgPerDay}
+                label={t("averagePerDay")}
+                value={selectedDeviceStats.averagePerDay}
+                tone="green"
               />
-              <StatTile
+
+              <DeviceStatTile
                 icon="time-outline"
-                label="Peak Time"
-                value={stats.peakTime}
+                label={t("peakTime")}
+                value={selectedDeviceStats.peakTime}
+                tone="green"
               />
             </View>
 
-            {/* Chart */}
-            <View style={styles.chartCard}>
-              <Text style={styles.chartTitle}>
-                {stats.bucketSize > 1
-                  ? `Bird Detections (every ${stats.bucketSize} days)`
-                  : "Bird Detections per Day"}
-              </Text>
+            {!selectedDeviceStats.hasRecords && (
+              <View style={styles.noStats}>
+                <Ionicons
+                  name="stats-chart-outline"
+                  size={22}
+                  color={COLORS.gray}
+                />
 
-              <View style={styles.chartRow}>
-                {stats.weekly.map((item, index) => {
-                  const height = Math.max(
-                    (item.count / maxWeekly) * BAR_MAX_HEIGHT,
-                    4
-                  );
-
-                  return (
-                    <View key={`${item.day}-${index}`} style={styles.barCol}>
-                      <Text style={styles.barValue}>{item.count}</Text>
-
-                      <View style={styles.barTrack}>
-                        <View
-                          style={[
-                            styles.bar,
-                            { height },
-                            item.count === 0 && styles.barEmpty,
-                          ]}
-                        />
-                      </View>
-
-                      <Text style={styles.barLabel}>{item.day}</Text>
-                    </View>
-                  );
-                })}
+                <Text style={styles.noStatsText}>
+                  {t("noStatistics")}
+                </Text>
               </View>
-            </View>
+            )}
           </View>
         )}
-      </ScrollView>
 
-      {/* Date range picker */}
-      {selectedDevice && stats && (
-        <RangeCalendarModal
-          visible={pickerOpen}
-          initialStart={stats.rangeStart}
-          initialEnd={stats.rangeEnd}
-          onClose={() => setPickerOpen(false)}
-          onApply={(s, e) => {
-            setCustomRange({ start: s, end: e });
-            setPreset("custom");
-            setPickerOpen(false);
-          }}
-        />
-      )}
+        {/* STATUS INFORMATION NOTE */}
+
+        <View style={styles.noteStrip}>
+          <Ionicons
+            name="information-circle-outline"
+            size={19}
+            color={COLORS.primary}
+          />
+
+          <Text style={styles.noteText}>
+            {t("statusNote")} {t("statusNoteEnd")}
+          </Text>
+        </View>
+
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>
+            {t("footer")}
+          </Text>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                  STYLES                                    */
+/*                                   STYLES                                   */
 /* -------------------------------------------------------------------------- */
 
 const styles = StyleSheet.create({
-  /* Main */
   safe: {
     flex: 1,
-    backgroundColor: COLORS.white,
+    backgroundColor: "#F8FAF5",
   },
 
   scroll: {
@@ -1065,593 +943,444 @@ const styles = StyleSheet.create({
 
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 60,
-    paddingBottom: 120,
+    paddingTop: 20,
+    paddingBottom: 125,
   },
 
-  /* Header */
+  /* HEADER */
+
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 20,
+    justifyContent: "space-between",
+    marginBottom: 22,
+    gap: 12,
   },
 
-  welcome: {
-    fontSize: 24,
+  headerText: {
+    flex: 1,
+  },
+
+  pageTitle: {
+    fontSize: 25,
     fontFamily: "PlusJakartaSans_700Bold",
     color: COLORS.darkGreen,
+    letterSpacing: -0.6,
   },
 
-  headerSubtitle: {
-    fontSize: 12,
+  pageSubtitle: {
+    fontSize: 11,
+    lineHeight: 17,
     fontFamily: "PlusJakartaSans_400Regular",
-    color: COLORS.gray,
-    marginTop: 2,
+    color: COLORS.muted,
+    marginTop: 5,
   },
 
-  addBtn: {
+  refreshButton: {
     width: 40,
     height: 40,
-    borderRadius: 10,
+    borderRadius: 11,
     backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: COLORS.darkGreen,
   },
 
-  /* Fleet Overview */
-  fleetCard: {
+  /* SUMMARY CARDS */
+
+  summaryGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 17,
+  },
+
+  statCard: {
+    width: "48%",
+    flexGrow: 1,
+    minWidth: 0,
+    minHeight: 139,
+    padding: 13,
     backgroundColor: COLORS.white,
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 8,
-    marginBottom: 14,
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderColor: "#E8EDE3",
+    borderRadius: 13,
+  },
+
+  statIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
   },
 
-  fleetItem: {
-    flex: 1,
-    alignItems: "center",
+  statIconGreen: {
+    backgroundColor: "#EAF5E9",
   },
 
-  fleetValue: {
-    fontSize: 22,
-    fontFamily: "PlusJakartaSans_700Bold",
-    color: COLORS.primary,
-    marginTop: 6,
+  statIconGold: {
+    backgroundColor: COLORS.lightGold,
   },
 
-  fleetValueAlert: {
-    color: COLORS.red,
-  },
-
-  fleetValueMuted: {
-    color: COLORS.gray,
-  },
-
-  fleetLabel: {
-    fontSize: 12,
-    fontFamily: "PlusJakartaSans_400Regular",
-    color: COLORS.gray,
-    marginTop: 1,
-  },
-
-  iconCircleAlert: {
+  statIconRed: {
     backgroundColor: COLORS.lightRed,
   },
 
-  iconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: COLORS.veryLightGreen,
-    alignItems: "center",
-    justifyContent: "center",
+  statLabel: {
+    fontSize: 10,
+    lineHeight: 14,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    color: "#718072",
   },
 
-  dividerVert: {
-    width: 1,
-    height: 36,
-    backgroundColor: COLORS.border,
+  statValue: {
+    fontSize: 25,
+    fontFamily: "PlusJakartaSans_700Bold",
+    color: "#173D27",
+    marginTop: 4,
   },
 
-  emptyValue: {
-    color: COLORS.gray,
+  statNote: {
+    fontSize: 9,
+    lineHeight: 13,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: "#9AA49A",
+    marginTop: 2,
   },
 
-  /* Section */
-  section: {
+  /* PANELS */
+
+  panel: {
     backgroundColor: COLORS.white,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 14,
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderColor: "#E8EDE3",
+    borderRadius: 13,
+    padding: 15,
+    marginBottom: 16,
   },
 
-  sectionLast: {
-    backgroundColor: COLORS.white,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 14,
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
-  },
-
-  sectionHeader: {
+  panelHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
+    gap: 8,
+    marginBottom: 13,
   },
 
-  sectionTitle: {
-    fontSize: 20,
-    fontFamily: "PlusJakartaSans_600SemiBold",
-    color: COLORS.darkGreen,
-  },
-
-  sectionLink: {
-    fontSize: 15,
-    fontFamily: "PlusJakartaSans_500Medium",
-    color: COLORS.primary,
-  },
-
-  statDeviceName: {
+  panelHeading: {
     flex: 1,
-    textAlign: "right",
-    marginLeft: 12,
-    fontSize: 14,
-    fontFamily: "PlusJakartaSans_500Medium",
+  },
+
+  panelTitle: {
+    fontSize: 16,
+    fontFamily: "PlusJakartaSans_700Bold",
+    color: "#1B3E29",
+  },
+
+  panelSubtitle: {
+    fontSize: 10,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: "#929D91",
+    marginTop: 4,
+  },
+
+  viewAllButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingVertical: 7,
+    paddingLeft: 7,
+  },
+
+  viewAllText: {
+    fontSize: 11,
+    fontFamily: "PlusJakartaSans_700Bold",
     color: COLORS.primary,
   },
 
-  /* Device */
-  deviceSummary: {
-    fontSize: 12,
-    fontFamily: "PlusJakartaSans_400Regular",
-    color: COLORS.gray,
-    marginBottom: 10,
+  /* DEVICE LIST */
+
+  deviceList: {
+    gap: 4,
+  },
+
+  deviceSelect: {
+    paddingHorizontal: 9,
+    paddingVertical: 9,
+    borderRadius: 10,
+    backgroundColor: "transparent",
+  },
+
+  deviceSelectSelected: {
+    backgroundColor: "#EDF4E7",
   },
 
   deviceRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.white,
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    gap: 10,
   },
 
-  deviceRowSelected: {
-    borderColor: COLORS.primary,
-    borderWidth: 1.5,
-    backgroundColor: COLORS.veryLightGreen,
-  },
-
-  deviceIconWrap: {
-    width: 44,
-    height: 44,
+  deviceIcon: {
+    width: 38,
+    height: 38,
     borderRadius: 10,
-    backgroundColor: COLORS.veryLightGreen,
+    backgroundColor: "#F1F5E9",
     alignItems: "center",
     justifyContent: "center",
   },
 
-  deviceIconWrapInactive: {
+  deviceIconOffline: {
     backgroundColor: COLORS.lightGray,
   },
 
-  deviceInfo: {
+  deviceMain: {
     flex: 1,
-    marginLeft: 12,
+    minWidth: 0,
   },
 
   deviceName: {
-    fontSize: 15,
-    fontFamily: "PlusJakartaSans_600SemiBold",
-    color: COLORS.darkGreen,
-  },
-
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 3,
-  },
-
-  statusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: COLORS.primary,
-  },
-
-  statusDotInactive: {
-    backgroundColor: COLORS.gray,
-  },
-
-  deviceStatus: {
     fontSize: 12,
-    fontFamily: "PlusJakartaSans_400Regular",
-    color: COLORS.primary,
-    marginLeft: 5,
+    fontFamily: "PlusJakartaSans_700Bold",
+    color: "#294331",
   },
 
-  deviceStatusInactive: {
-    color: COLORS.gray,
+  deviceDetails: {
+    fontSize: 9,
+    lineHeight: 14,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: "#909B90",
+    marginTop: 4,
   },
 
   statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginRight: 6,
-    borderWidth: 1,
-  },
-
-  statusBadgeActive: {
-    backgroundColor: COLORS.veryLightGreen,
-    borderColor: COLORS.primary,
-  },
-
-  statusBadgeInactive: {
-    backgroundColor: COLORS.lightGray,
-    borderColor: COLORS.border,
-  },
-
-  statusBadgeText: {
-    fontSize: 11,
-    fontFamily: "PlusJakartaSans_600SemiBold",
-  },
-
-  statusBadgeTextActive: {
-    color: COLORS.primary,
-  },
-
-  statusBadgeTextInactive: {
-    color: COLORS.gray,
-  },
-
-  deviceEmptySpacing: {
-    marginBottom: 10,
-  },
-
-  /* Bird Banner */
-  birdBanner: {
-    flexDirection: "row",
-    backgroundColor: COLORS.lightGold,
-    borderRadius: 10,
-    padding: 10,
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderWidth: 1,
-    borderColor: "#EFE5B9",
-  },
-
-  birdBannerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-
-  birdEmojiWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: COLORS.white,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  birdEmoji: {
-    fontSize: 18,
-  },
-
-  birdBannerRight: {
-    alignItems: "flex-end",
-  },
-
-  birdBannerLabel: {
-    fontSize: 11,
-    fontFamily: "PlusJakartaSans_400Regular",
-    color: COLORS.darkGreen,
-  },
-
-  birdCountLarge: {
-    fontSize: 18,
-    fontFamily: "PlusJakartaSans_700Bold",
-    color: COLORS.primary,
-  },
-
-  /* Shared empty state */
-  emptyBox: {
-    minHeight: 70,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.lightGray,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-  },
-
-  emptyBoxText: {
-    fontSize: 11,
-    fontFamily: "PlusJakartaSans_400Regular",
-    color: COLORS.gray,
-    marginTop: 6,
-    textAlign: "center",
-  },
-
-  /* Date filter */
-  filterRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 8,
-  },
-
-  chip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.white,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 20,
   },
 
-  chipActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
+  statusOnline: {
+    backgroundColor: "#EDF7EB",
   },
 
-  chipText: {
-    fontSize: 12,
-    fontFamily: "PlusJakartaSans_500Medium",
-    color: COLORS.primary,
+  statusOffline: {
+    backgroundColor: "#FFF0ED",
   },
 
-  chipTextActive: {
-    color: COLORS.white,
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
 
-  rangeSummary: {
-    fontSize: 12,
-    fontFamily: "PlusJakartaSans_400Regular",
-    color: COLORS.gray,
-    marginBottom: 12,
+  dotOnline: {
+    backgroundColor: "#3F8745",
   },
 
-  /* Calendar modal */
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
+  dotOffline: {
+    backgroundColor: "#D45D50",
   },
 
-  modalCard: {
-    width: "100%",
-    maxWidth: 380,
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 16,
-  },
-
-  modalTitle: {
-    fontSize: 18,
+  statusText: {
+    fontSize: 9,
     fontFamily: "PlusJakartaSans_700Bold",
-    color: COLORS.darkGreen,
   },
 
-  modalHint: {
-    fontSize: 12,
-    fontFamily: "PlusJakartaSans_400Regular",
-    color: COLORS.gray,
-    marginTop: 2,
-    marginBottom: 12,
+  textOnline: {
+    color: "#3F8745",
   },
 
-  calHeader: {
+  textOffline: {
+    color: "#C75448",
+  },
+
+  deviceSelectionFooter: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
+    paddingLeft: 48,
+    paddingRight: 3,
+    paddingTop: 7,
   },
 
-  calNavBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: COLORS.veryLightGreen,
+  selectionText: {
+    fontSize: 10,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    color: COLORS.gray,
+  },
+
+  selectionTextSelected: {
+    color: COLORS.primary,
+  },
+
+  /* LOADING AND EMPTY STATES */
+
+  loadingState: {
+    minHeight: 100,
     alignItems: "center",
     justifyContent: "center",
+    gap: 9,
   },
 
-  calTitle: {
-    fontSize: 15,
-    fontFamily: "PlusJakartaSans_600SemiBold",
-    color: COLORS.darkGreen,
-  },
-
-  calRow: {
-    flexDirection: "row",
-  },
-
-  calWeekday: {
-    flex: 1,
-    textAlign: "center",
+  loadingText: {
     fontSize: 11,
-    fontFamily: "PlusJakartaSans_600SemiBold",
-    color: COLORS.gray,
-    paddingVertical: 4,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: COLORS.muted,
   },
 
-  calCell: {
-    flex: 1,
-    height: 38,
+  emptyState: {
+    paddingVertical: 27,
+    paddingHorizontal: 15,
     alignItems: "center",
     justifyContent: "center",
   },
 
-  calCellInRange: {
-    backgroundColor: COLORS.lightGreen,
-  },
-
-  calCellEdge: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 19,
-  },
-
-  calDayText: {
+  emptyTitle: {
     fontSize: 13,
-    fontFamily: "PlusJakartaSans_500Medium",
+    fontFamily: "PlusJakartaSans_700Bold",
     color: COLORS.darkGreen,
+    marginTop: 9,
   },
 
-  calDayTextEdge: {
-    color: COLORS.white,
-  },
-
-  modalActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: 10,
-    marginTop: 14,
-  },
-
-  modalCancel: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-
-  modalCancelText: {
-    fontSize: 13,
-    fontFamily: "PlusJakartaSans_600SemiBold",
+  emptySubtitle: {
+    fontSize: 10,
+    lineHeight: 16,
+    fontFamily: "PlusJakartaSans_400Regular",
     color: COLORS.gray,
+    textAlign: "center",
+    marginTop: 5,
   },
 
-  modalApply: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: COLORS.primary,
-  },
+  /* FILTERS */
 
-  modalApplyText: {
-    fontSize: 13,
-    fontFamily: "PlusJakartaSans_600SemiBold",
-    color: COLORS.white,
-  },
-
-  /* Statistics */
-  statGrid: {
+  filterRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 12,
+    gap: 7,
+    marginTop: 5,
+    marginBottom: 16,
   },
 
-  statTile: {
-    width: "48%",
-    flexGrow: 1,
-    backgroundColor: COLORS.white,
-    borderRadius: 10,
-    padding: 12,
+  filterButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
     borderWidth: 1,
     borderColor: COLORS.border,
+    borderRadius: 9,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    backgroundColor: COLORS.white,
   },
 
-  statIconWrap: {
+  filterButtonActive: {
+    backgroundColor: COLORS.darkGreen,
+    borderColor: COLORS.darkGreen,
+  },
+
+  filterText: {
+    fontSize: 10,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    color: "#526456",
+  },
+
+  filterTextActive: {
+    color: COLORS.white,
+  },
+
+  /* DEVICE STATISTICS */
+
+  deviceStatsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 9,
+  },
+
+  deviceStatTile: {
+    width: "48%",
+    flexGrow: 1,
+    minWidth: 0,
+    minHeight: 112,
+    padding: 11,
+    borderWidth: 1,
+    borderColor: "#E8EDE3",
+    borderRadius: 10,
+    backgroundColor: COLORS.white,
+  },
+
+  deviceStatIcon: {
     width: 30,
     height: 30,
-    borderRadius: 15,
-    backgroundColor: COLORS.veryLightGreen,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 8,
   },
 
-  statLabel: {
-    fontSize: 12,
-    fontFamily: "PlusJakartaSans_400Regular",
-    color: COLORS.gray,
+  deviceStatLabel: {
+    fontSize: 10,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: "#718072",
   },
 
-  statValue: {
-    fontSize: 20,
+  deviceStatValue: {
+    fontSize: 21,
     fontFamily: "PlusJakartaSans_700Bold",
-    color: COLORS.primary,
-    marginTop: 2,
+    color: "#173D27",
+    marginTop: 4,
   },
 
-  chartCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-
-  chartTitle: {
-    fontSize: 14,
-    fontFamily: "PlusJakartaSans_600SemiBold",
-    color: COLORS.darkGreen,
-    marginBottom: 12,
-  },
-
-  chartRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-  },
-
-  barCol: {
-    flex: 1,
+  noStats: {
     alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 20,
+    paddingHorizontal: 12,
   },
 
-  barValue: {
+  noStatsText: {
     fontSize: 10,
-    fontFamily: "PlusJakartaSans_600SemiBold",
-    color: COLORS.darkGreen,
-    marginBottom: 4,
-  },
-
-  barTrack: {
-    height: 90,
-    justifyContent: "flex-end",
-  },
-
-  bar: {
-    width: 18,
-    borderRadius: 5,
-    backgroundColor: COLORS.primary,
-  },
-
-  barEmpty: {
-    backgroundColor: COLORS.border,
-  },
-
-  barLabel: {
-    fontSize: 10,
+    lineHeight: 15,
     fontFamily: "PlusJakartaSans_400Regular",
     color: COLORS.gray,
-    marginTop: 6,
+    textAlign: "center",
+    marginTop: 7,
+  },
+
+  /* INFORMATION NOTE */
+
+  noteStrip: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 9,
+    backgroundColor: "#F1F5E9",
+    borderRadius: 9,
+    padding: 13,
+    marginTop: 1,
+  },
+
+  noteText: {
+    flex: 1,
+    fontSize: 10,
+    lineHeight: 16,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: "#61715E",
+  },
+
+  /* FOOTER */
+
+  footer: {
+    alignItems: "center",
+    paddingTop: 19,
+  },
+
+  footerText: {
+    fontSize: 9,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    color: "#A0AAA0",
+    letterSpacing: 0.4,
   },
 });
