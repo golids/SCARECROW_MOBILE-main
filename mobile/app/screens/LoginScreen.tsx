@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useRef, useState } from "react";
 import {
   View,
   Text,
@@ -15,67 +15,51 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter, useLocalSearchParams } from "expo-router";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 
-// Supabase Auth needs an email, so the username is turned into
-// <username>@scarecrow.app behind the scenes.
 const EMAIL_DOMAIN = "scarecrow.app";
 
 function friendlyAuthError(message: string) {
-  const m = message.toLowerCase();
+  const value = message.toLowerCase();
 
-  if (m.includes("invalid login credentials")) {
-    return "Incorrect username or password.";
+  if (value.includes("invalid login credentials")) {
+    return "Incorrect username or password. Please check your login details.";
   }
 
-  if (m.includes("email not confirmed")) {
-    return "This account hasn't been confirmed yet. Please contact your administrator.";
+  if (value.includes("email not confirmed")) {
+    return "Your account has not been confirmed. Please contact the administrator.";
   }
 
   return message;
 }
 
 export default function LoginScreen() {
-  const [username, setUsername] = useState<string>("");
-  const [password, setPassword] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(false);
-  const [showPassword, setShowPassword] = useState<boolean>(false);
-  const [showForgotBanner, setShowForgotBanner] = useState<boolean>(false);
-
-  const passwordRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const router = useRouter();
 
-  const params = useLocalSearchParams<{
-    username?: string;
-    phone?: string;
-  }>();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showForgotInfo, setShowForgotInfo] = useState(false);
 
-  // Pre-fill username if coming from an older navigation route.
-  useEffect(() => {
-    const prefill = params.username ?? params.phone;
-
-    if (prefill) {
-      setUsername(prefill);
-    }
-  }, [params.username, params.phone]);
+  const passwordRef = useRef<React.ElementRef<typeof TextInput>>(null);
 
   const handleLogin = async () => {
     const cleanUsername = username.trim().toLowerCase();
 
     if (!cleanUsername || !password) {
-      Alert.alert("Error", "Please fill in all fields");
+      Alert.alert("Missing information", "Enter your username and password.");
       return;
     }
 
-    // Accept either a full email or a username.
-    const isEmail = cleanUsername.includes("@");
+    const validUsername = /^[a-z0-9._-]+$/.test(cleanUsername);
 
-    if (!isEmail && !/^[a-z0-9._-]+$/.test(cleanUsername)) {
+    if (!validUsername) {
       Alert.alert(
-        "Error",
-        "Username can only contain letters, numbers, dots, dashes and underscores."
+        "Invalid username",
+        "Enter the username provided by your administrator."
       );
       return;
     }
@@ -83,60 +67,73 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      const email = isEmail
-        ? cleanUsername
-        : `${cleanUsername}@${EMAIL_DOMAIN}`;
+      const email = `${cleanUsername}@${EMAIL_DOMAIN}`;
 
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      const { error: loginError } =
+        await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
 
-      if (error) {
-        Alert.alert("Login Failed", friendlyAuthError(error.message));
+      if (loginError) {
+        Alert.alert("Login failed", friendlyAuthError(loginError.message));
         return;
       }
 
-      // Successful login: navigate to the Home screen.
+      // Keep administrator accounts out of the Client App.
+      const { data: isAdmin, error: roleError } =
+        await supabase.rpc("is_scarecrow_admin");
+
+      if (roleError) {
+        await supabase.auth.signOut();
+
+        Alert.alert(
+          "Account verification failed",
+          "We could not verify your account type. Please try again or contact the administrator."
+        );
+        return;
+      }
+
+      if (isAdmin === true) {
+        await supabase.auth.signOut();
+
+        Alert.alert(
+          "Administrator account",
+          "This account belongs to the administrator. Please use the ScareCROW Admin Web App."
+        );
+        return;
+      }
+
       router.replace("/(tabs)/Home");
-    } catch (error) {
+    } catch (error: any) {
+      console.error("Client login error:", error);
+
+      await supabase.auth.signOut();
+
       Alert.alert(
-        "Error",
-        "Network error. Please check your connection and try again."
+        "Connection error",
+        error?.message ||
+          "Unable to sign in. Check your internet connection and try again."
       );
     } finally {
       setLoading(false);
     }
   };
 
-  // Admin-only app: password resets are handled by
-  // the administrator or maintenance team.
-  const handleForgotPassword = () => {
-    setShowForgotBanner((visible) => !visible);
-  };
+  return (
+    <SafeAreaView style={styles.screen}>
+      <StatusBar style="dark" />
 
-    return (
-      <SafeAreaView style={styles.screen}>
-        <StatusBar
-          style="dark"
-
-          hidden={false}
-        />
-
-        <KeyboardAvoidingView
-          style={styles.container}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
-        >
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
         >
-          {/* Logo + App Name + Abbreviation */}
-          <View style={styles.brandingContainer}>
+          <View style={styles.branding}>
             <Image
               source={require("../../assets/images/app-icon.png")}
               style={styles.logo}
@@ -147,134 +144,98 @@ export default function LoginScreen() {
               SCARE<Text style={styles.appNameBold}>CROW</Text>
             </Text>
 
-            <Text style={styles.abbrName}>
+            <Text style={styles.tagline}>
               Crop Reliable Operative Warden
             </Text>
           </View>
 
-          {/* Login Card */}
           <View style={styles.loginCard}>
-            <Text style={styles.title}>ADMIN PORTAL</Text>
-
-            <Text style={styles.subtitle}>
-              Authorized personnel only. Please sign in to continue.
-            </Text>
-
-            {/* Username and Password */}
-            <View style={styles.inputContainer}>
-              <View style={styles.inputWrapper}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Username"
-                  placeholderTextColor="#808080"
-                  value={username}
-                  onChangeText={setUsername}
-                  keyboardType="default"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoComplete="username"
-                  textContentType="username"
-                  returnKeyType="next"
-                  onSubmitEditing={() => passwordRef.current?.focus()}
-                  blurOnSubmit={false}
-                  editable={!loading}
-                />
-              </View>
-
-              <View style={styles.inputWrapper}>
-                <TextInput
-                  ref={passwordRef}
-                  style={styles.input}
-                  placeholder="Password"
-                  placeholderTextColor="#808080"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoComplete="password"
-                  textContentType="password"
-                  returnKeyType="go"
-                  onSubmitEditing={handleLogin}
-                  editable={!loading}
-                />
-
-                {/* Show / Hide Password */}
-                <TouchableOpacity
-                  style={styles.eyeIcon}
-                  onPress={() => setShowPassword(!showPassword)}
-                  disabled={loading}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name={
-                      showPassword
-                        ? "eye-off-outline"
-                        : "eye-outline"
-                    }
-                    size={22}
-                    color="#4F8F3A"
-                  />
-                </TouchableOpacity>
-              </View>
+            <View style={styles.heading}>
+              <Text style={styles.title}>CLIENT LOGIN</Text>
+              <Text style={styles.subtitle}>
+                Sign in to monitor your assigned ScareCROW devices.
+              </Text>
             </View>
 
-            {/* Forgot Password */}
-            <TouchableOpacity
-              style={styles.forgotContainer}
-              onPress={handleForgotPassword}
-              disabled={loading}
-            >
-              <Text style={styles.forgotText}>
-                Forgot Password?
-              </Text>
-            </TouchableOpacity>
+            <Text style={styles.label}>Username</Text>
+            <View style={styles.inputWrapper}>
+              <Ionicons
+                name="person-outline"
+                size={19}
+                color="#808080"
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your username"
+                placeholderTextColor="#999999"
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="username"
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
+                editable={!loading}
+              />
+            </View>
 
-            {/* Forgot Password Information Banner */}
-            {showForgotBanner && (
-              <View
-                style={styles.banner}
-                accessibilityLiveRegion="polite"
+            <Text style={styles.label}>Password</Text>
+            <View style={styles.inputWrapper}>
+              <Ionicons
+                name="lock-closed-outline"
+                size={19}
+                color="#808080"
+              />
+              <TextInput
+                ref={passwordRef}
+                style={styles.input}
+                placeholder="Enter your password"
+                placeholderTextColor="#999999"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="password"
+                returnKeyType="go"
+                onSubmitEditing={handleLogin}
+                editable={!loading}
+              />
+
+              <TouchableOpacity
+                onPress={() => setShowPassword((value) => !value)}
+                disabled={loading}
+                hitSlop={10}
               >
                 <Ionicons
-                  name="information-circle"
-                  size={22}
+                  name={showPassword ? "eye-off-outline" : "eye-outline"}
+                  size={21}
                   color="#4F8F3A"
-                  style={styles.bannerIcon}
                 />
+              </TouchableOpacity>
+            </View>
 
-                <Text style={styles.bannerText}>
-                  Please contact your{" "}
-                  <Text style={styles.bannerBold}>
-                    Administrator
-                  </Text>{" "}
-                  or the{" "}
-                  <Text style={styles.bannerBold}>
-                    Maintenance team
-                  </Text>{" "}
-                  to have your password reset.
+            <TouchableOpacity
+              style={styles.forgotButton}
+              onPress={() => setShowForgotInfo((value) => !value)}
+              disabled={loading}
+            >
+              <Text style={styles.forgotText}>Forgot password?</Text>
+            </TouchableOpacity>
+
+            {showForgotInfo && (
+              <View style={styles.infoBox}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={20}
+                  color="#4F8F3A"
+                />
+                <Text style={styles.infoText}>
+                  Please contact your administrator to request a password reset.
                 </Text>
-
-                <TouchableOpacity
-                  onPress={() => setShowForgotBanner(false)}
-                  hitSlop={{
-                    top: 10,
-                    bottom: 10,
-                    left: 10,
-                    right: 10,
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name="close"
-                    size={18}
-                    color="#123B25"
-                  />
-                </TouchableOpacity>
               </View>
             )}
 
-            {/* Login Button */}
             <TouchableOpacity
               style={[
                 styles.loginButton,
@@ -282,18 +243,18 @@ export default function LoginScreen() {
               ]}
               onPress={handleLogin}
               disabled={loading}
+              activeOpacity={0.8}
             >
               {loading ? (
-                <ActivityIndicator
-                  color="#FFFFFF"
-                  size="small"
-                />
+                <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.loginButtonText}>
-                  LOG IN
-                </Text>
+                <Text style={styles.loginButtonText}>SIGN IN</Text>
               )}
             </TouchableOpacity>
+
+            <Text style={styles.footerNote}>
+              Your account must be created by a ScareCROW administrator.
+            </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -302,195 +263,144 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  // Main screen background
   screen: {
     flex: 1,
     backgroundColor: "#F7F9E9",
   },
-
   container: {
     flex: 1,
-    backgroundColor: "#F7F9E9",
   },
-
   content: {
     flexGrow: 1,
-    paddingHorizontal: 24,
     justifyContent: "center",
-    paddingVertical: 20,
+    paddingHorizontal: 23,
+    paddingVertical: 25,
   },
-
-  // Branding
-  brandingContainer: {
+  branding: {
     alignItems: "center",
-    marginTop: 15,
-    marginBottom: 30,
+    marginBottom: 25,
   },
-
   logo: {
-    width: 180,
-    height: 180,
-    marginBottom: 8,
+    width: 145,
+    height: 145,
+    marginBottom: 5,
   },
-
   appName: {
     fontFamily: "PlusJakartaSans_400Regular",
-    fontSize: 42,
+    fontSize: 37,
     letterSpacing: 3,
     color: "#123B25",
-    textAlign: "center",
   },
-
   appNameBold: {
     fontFamily: "PlusJakartaSans_700Bold",
-    fontWeight: "700",
   },
-
-  abbrName: {
+  tagline: {
     fontFamily: "PlusJakartaSans_400Regular",
-    fontSize: 15,
-    letterSpacing: 1,
+    fontSize: 11,
     color: "#123B25",
-    textAlign: "center",
     marginTop: 4,
-    opacity: 0.85,
   },
-
-  // Login Card
   loginCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    paddingVertical: 28,
-    paddingHorizontal: 20,
-    marginBottom: 24,
+    borderRadius: 19,
     borderWidth: 1,
     borderColor: "#E5E9D2",
+    padding: 21,
     elevation: 3,
     shadowColor: "#123B25",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
   },
-
-  title: {
-    fontSize: 25,
-    fontFamily: "PlusJakartaSans_700Bold",
-    color: "#123B25",
-    marginBottom: 5,
-    textAlign: "center",
+  heading: {
+    alignItems: "center",
+    marginBottom: 23,
   },
-
+  title: {
+    fontFamily: "PlusJakartaSans_700Bold",
+    fontSize: 22,
+    color: "#123B25",
+  },
   subtitle: {
-    fontSize: 14,
     fontFamily: "PlusJakartaSans_400Regular",
     color: "#808080",
-    marginBottom: 20,
+    fontSize: 11,
+    lineHeight: 17,
     textAlign: "center",
-    paddingHorizontal: 10,
-    lineHeight: 23,
+    marginTop: 6,
   },
-
-  // Input Fields
-  inputContainer: {
-    marginBottom: 16,
+  label: {
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontSize: 11,
+    color: "#123B25",
+    marginBottom: 7,
   },
-
   inputWrapper: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    marginBottom: 12,
+    minHeight: 49,
     borderWidth: 1,
-    width: "95%",
-    alignSelf: "center",
-    height: 50,
     borderColor: "#E5E9D2",
+    borderRadius: 10,
     flexDirection: "row",
     alignItems: "center",
+    paddingHorizontal: 12,
+    gap: 9,
+    marginBottom: 17,
   },
-
   input: {
     flex: 1,
-    paddingHorizontal: 15,
-    paddingVertical: 13,
-    fontSize: 15,
     fontFamily: "PlusJakartaSans_400Regular",
+    fontSize: 12,
     color: "#123B25",
-  },
-
-  eyeIcon: {
-    paddingHorizontal: 12,
     paddingVertical: 10,
-    backgroundColor: "transparent",
   },
-
-  // Forgot Password
-  forgotContainer: {
-    alignItems: "flex-end",
-    marginTop: -10,
-    right: 12,
-    marginBottom: 20,
+  forgotButton: {
+    alignSelf: "flex-end",
+    marginTop: -7,
+    marginBottom: 17,
   },
-
   forgotText: {
     color: "#123B25",
-    fontSize: 14,
-    fontFamily: "PlusJakartaSans_500Medium",
-  },
-
-  // Forgot Password Banner
-  banner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    backgroundColor: "#F7F9E9",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#4F8F3A",
-    padding: 12,
-    width: "95%",
-    alignSelf: "center",
-    marginTop: -8,
-    marginBottom: 30,
-  },
-
-  bannerIcon: {
-    marginTop: 1,
-  },
-
-  bannerText: {
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 19,
-    fontFamily: "PlusJakartaSans_400Regular",
-    color: "#123B25",
-  },
-
-  bannerBold: {
+    fontSize: 11,
     fontFamily: "PlusJakartaSans_600SemiBold",
   },
-
-  // Login Button
-  loginButton: {
-    backgroundColor: "#4F8F3A",
-    borderRadius: 12,
-    paddingVertical: 6,
+  infoBox: {
+    flexDirection: "row",
     alignItems: "center",
-    marginTop: -10,
-    marginBottom: 10,
-    width: "60%",
-    height: 52,
-    alignSelf: "center",
+    gap: 8,
+    backgroundColor: "#F7F9E9",
+    borderWidth: 1,
+    borderColor: "#E5E9D2",
+    borderRadius: 10,
+    padding: 11,
+    marginBottom: 15,
+  },
+  infoText: {
+    flex: 1,
+    color: "#123B25",
+    fontSize: 10,
+    lineHeight: 16,
+  },
+  loginButton: {
+    height: 49,
+    borderRadius: 11,
+    backgroundColor: "#4F8F3A",
+    alignItems: "center",
     justifyContent: "center",
   },
-
   loginButtonDisabled: {
     opacity: 0.7,
   },
-
   loginButtonText: {
     color: "#FFFFFF",
-    fontSize: 18,
-    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontSize: 14,
+    fontFamily: "PlusJakartaSans_700Bold",
     letterSpacing: 0.5,
+  },
+  footerNote: {
+    color: "#808080",
+    fontSize: 9,
+    lineHeight: 14,
+    textAlign: "center",
+    marginTop: 16,
   },
 });

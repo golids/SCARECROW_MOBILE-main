@@ -3,19 +3,28 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
+  ScrollView,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
-  Switch,
   ActivityIndicator,
+  Switch,
   Alert,
-  Image,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
-import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import {
+  useFonts,
+  PlusJakartaSans_400Regular,
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
+} from "@expo-google-fonts/plus-jakarta-sans";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import { supabase } from "../../lib/supabase";
-import { useLanguage } from "../context/LanguageContext";
 
 const COLORS = {
   white: "#FFFFFF",
@@ -23,92 +32,91 @@ const COLORS = {
   primary: "#4F8F3A",
   lightGreen: "#E8F0B8",
   veryLightGreen: "#F7F9E9",
-  gold: "#D9B83F",
   gray: "#808080",
   lightGray: "#F5F5F5",
   border: "#E5E9D2",
   red: "#D32F2F",
+  lightRed: "#FDECEA",
 };
 
 type AlertKey =
   | "device_disconnection"
   | "device_errors"
-  | "low_battery"
-  | "device_recovery"
-  | "bird_detection";
+  | "device_recovery";
 
-type NotificationPreferences = Record<AlertKey, boolean>;
+type Preferences = Record<AlertKey, boolean>;
 
-const DEFAULT_PREFERENCES: NotificationPreferences = {
+interface Profile {
+  id: string;
+  full_name: string | null;
+  contact_number: string | null;
+  province: string | null;
+  municipality: string | null;
+  barangay: string | null;
+}
+
+const DEFAULT_PREFERENCES: Preferences = {
   device_disconnection: true,
   device_errors: true,
-  low_battery: true,
   device_recovery: true,
-  bird_detection: true,
 };
 
 const NOTIFICATION_ITEMS: {
   key: AlertKey;
-  titleKey:
-    | "deviceDisconnectionTitle"
-    | "deviceErrorsTitle"
-    | "lowBatteryTitle"
-    | "deviceRecoveryTitle"
-    | "birdDetectionTitle";
-  descriptionKey:
-    | "getNotifiedWhenOffline"
-    | "receiveDeviceErrors"
-    | "lowBatteryDescription"
-    | "deviceRecoveryDescription"
-    | "birdDetectionDescription";
+  title: string;
+  description: string;
   icon: keyof typeof Ionicons.glyphMap;
 }[] = [
   {
     key: "device_disconnection",
-    titleKey: "deviceDisconnectionTitle",
-    descriptionKey: "getNotifiedWhenOffline",
+    title: "Device Disconnection",
+    description: "When an assigned device goes offline.",
     icon: "wifi-outline",
   },
   {
     key: "device_errors",
-    titleKey: "deviceErrorsTitle",
-    descriptionKey: "receiveDeviceErrors",
+    title: "Device Errors",
+    description: "When an error is recorded by a device.",
     icon: "alert-circle-outline",
   },
   {
-    key: "low_battery",
-    titleKey: "lowBatteryTitle",
-    descriptionKey: "lowBatteryDescription",
-    icon: "battery-half-outline",
-  },
-  {
     key: "device_recovery",
-    titleKey: "deviceRecoveryTitle",
-    descriptionKey: "deviceRecoveryDescription",
+    title: "Device Reconnection",
+    description: "When an assigned device reconnects.",
     icon: "checkmark-circle-outline",
-  },
-  {
-    key: "bird_detection",
-    titleKey: "birdDetectionTitle",
-    descriptionKey: "birdDetectionDescription",
-    icon: "eye-outline",
   },
 ];
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { language, t, isLanguageReady } = useLanguage();
+  const insets = useSafeAreaInsets();
 
-  const [email, setEmail] = useState("");
-  const [fullName, setFullName] = useState("Administrator");
-
-  const [preferences, setPreferences] =
-    useState<NotificationPreferences>(DEFAULT_PREFERENCES);
+  const [fontsLoaded] = useFonts({
+    PlusJakartaSans_400Regular,
+    PlusJakartaSans_600SemiBold,
+    PlusJakartaSans_700Bold,
+  });
 
   const [loading, setLoading] = useState(true);
-  const [savingKey, setSavingKey] = useState<AlertKey | null>(null);
-  const [loggingOut, setLoggingOut] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingPreference, setSavingPreference] =
+    useState<AlertKey | null>(null);
 
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [email, setEmail] = useState("");
+
+  const [preferences, setPreferences] =
+    useState<Preferences>(DEFAULT_PREFERENCES);
+
+  const [editModalVisible, setEditModalVisible] = useState(false);
+
+  const [fullName, setFullName] = useState("");
+  const [contactNumber, setContactNumber] = useState("");
+  const [province, setProvince] = useState("");
+  const [municipality, setMunicipality] = useState("");
+  const [barangay, setBarangay] = useState("");
+
+  // LOAD SETTINGS
   const loadSettings = useCallback(async () => {
     try {
       setLoading(true);
@@ -127,34 +135,47 @@ export default function SettingsScreen() {
 
       setEmail(user.email ?? "");
 
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("full_name")
-        .eq("id", user.id)
-        .maybeSingle();
+      const { data: profileData, error: profileError } =
+        await supabase
+          .from("profiles")
+          .select(
+            "id, full_name, contact_number, province, municipality, barangay"
+          )
+          .eq("id", user.id)
+          .maybeSingle();
 
       if (profileError) throw profileError;
 
-      setFullName(profile?.full_name || "Administrator");
+      if (profileData) {
+        const loadedProfile = profileData as Profile;
 
-      const { data: savedPreferences, error } = await supabase
-        .from("notification_preferences")
-        .select(
-          "device_disconnection, device_errors, low_battery, device_recovery, bird_detection"
-        )
-        .eq("user_id", user.id)
-        .maybeSingle();
+        setProfile(loadedProfile);
+        setFullName(loadedProfile.full_name ?? "");
+        setContactNumber(loadedProfile.contact_number ?? "");
+        setProvince(loadedProfile.province ?? "");
+        setMunicipality(loadedProfile.municipality ?? "");
+        setBarangay(loadedProfile.barangay ?? "");
+      } else {
+        setProfile(null);
+      }
 
-      if (error) throw error;
+      const { data: preferenceData, error: preferenceError } =
+        await supabase
+          .from("notification_preferences")
+          .select(
+            "device_disconnection, device_errors, device_recovery"
+          )
+          .eq("user_id", user.id)
+          .maybeSingle();
 
-      if (savedPreferences) {
+      if (preferenceError) throw preferenceError;
+
+      if (preferenceData) {
         setPreferences({
           device_disconnection:
-            savedPreferences.device_disconnection ?? true,
-          device_errors: savedPreferences.device_errors ?? true,
-          low_battery: savedPreferences.low_battery ?? true,
-          device_recovery: savedPreferences.device_recovery ?? true,
-          bird_detection: savedPreferences.bird_detection ?? true,
+            preferenceData.device_disconnection ?? true,
+          device_errors: preferenceData.device_errors ?? true,
+          device_recovery: preferenceData.device_recovery ?? true,
         });
       } else {
         setPreferences(DEFAULT_PREFERENCES);
@@ -163,37 +184,38 @@ export default function SettingsScreen() {
       console.error("Settings loading error:", error);
 
       Alert.alert(
-        t("error"),
-        error?.message || t("settingsLoadError")
+        "Unable to Load Settings",
+        error?.message ?? "Please try again later."
       );
     } finally {
       setLoading(false);
     }
-  }, [router, t]);
+  }, [router]);
 
   useEffect(() => {
-    if (isLanguageReady) {
-      void loadSettings();
+    loadSettings();
+  }, [loadSettings]);
+
+  // EDIT PROFILE
+  const openEditProfile = () => {
+    setFullName(profile?.full_name ?? "");
+    setContactNumber(profile?.contact_number ?? "");
+    setProvince(profile?.province ?? "");
+    setMunicipality(profile?.municipality ?? "");
+    setBarangay(profile?.barangay ?? "");
+    setEditModalVisible(true);
+  };
+
+  // SAVE PROFILE
+  const saveProfile = async () => {
+    if (!fullName.trim()) {
+      Alert.alert("Missing Information", "Please enter your full name.");
+      return;
     }
-  }, [loadSettings, isLanguageReady]);
-
-  const toggleNotification = async (
-    key: AlertKey,
-    value: boolean
-  ) => {
-    if (savingKey !== null) return;
-
-    const previousValue = preferences[key];
-
-    const updatedPreferences = {
-      ...preferences,
-      [key]: value,
-    };
-
-    setPreferences(updatedPreferences);
-    setSavingKey(key);
 
     try {
+      setSavingProfile(true);
+
       const {
         data: { user },
         error: authError,
@@ -202,7 +224,90 @@ export default function SettingsScreen() {
       if (authError) throw authError;
 
       if (!user) {
-        throw new Error(t("adminSessionNotFound"));
+        Alert.alert("Session Expired", "Please log in again.");
+        router.replace("/screens/LoginScreen");
+        return;
+      }
+
+      const updatedProfile = {
+        full_name: fullName.trim(),
+        contact_number: contactNumber.trim() || null,
+        province: province.trim() || null,
+        municipality: municipality.trim() || null,
+        barangay: barangay.trim() || null,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .update(updatedProfile)
+        .eq("id", user.id)
+        .select(
+          "id, full_name, contact_number, province, municipality, barangay"
+        )
+        .maybeSingle();
+
+      if (error) {
+        console.error("Supabase profile update error:", error);
+        throw error;
+      }
+
+      if (!data) {
+        throw new Error(
+          "No profile was updated. Check whether the logged-in user's ID matches profiles.id."
+        );
+      }
+
+      const { error: metadataError } = await supabase.auth.updateUser({
+        data: {
+          full_name: fullName.trim(),
+        },
+      });
+
+      if (metadataError) {
+        console.warn("Auth metadata update warning:", metadataError);
+      }
+
+      setProfile(data as Profile);
+      setEditModalVisible(false);
+
+      Alert.alert("Success", "Your profile has been updated.");
+    } catch (error: any) {
+      console.error("Profile update error:", error);
+
+      Alert.alert(
+        "Update Failed",
+        error?.message ?? "Unable to update your profile."
+      );
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  // NOTIFICATION PREFERENCES
+  const toggleNotification = async (
+    key: AlertKey,
+    value: boolean
+  ) => {
+    const previousPreferences = preferences;
+
+    setPreferences((current) => ({
+      ...current,
+      [key]: value,
+    }));
+
+    try {
+      setSavingPreference(key);
+
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError) throw authError;
+
+      if (!user) {
+        throw new Error("You are not logged in.");
       }
 
       const { error } = await supabase
@@ -210,195 +315,148 @@ export default function SettingsScreen() {
         .upsert(
           {
             user_id: user.id,
-            ...updatedPreferences,
+            [key]: value,
             updated_at: new Date().toISOString(),
           },
-          { onConflict: "user_id" }
+          {
+            onConflict: "user_id",
+          }
         );
 
       if (error) throw error;
     } catch (error: any) {
-      console.error("Notification update error:", error);
+      console.error("Notification preference error:", error);
 
-      setPreferences((current) => ({
-        ...current,
-        [key]: previousValue,
-      }));
+      setPreferences(previousPreferences);
 
       Alert.alert(
-        t("notificationUpdateFailed"),
-        error?.message || t("notificationUpdateFailed")
+        "Update Failed",
+        error?.message ?? "Unable to save notification preference."
       );
     } finally {
-      setSavingKey(null);
+      setSavingPreference(null);
     }
   };
 
+  // LOGOUT
   const handleLogout = () => {
     Alert.alert(
-      t("logOut"),
-      t("logoutConfirmation"),
+      "Log Out",
+      "Are you sure you want to log out of your account?",
       [
         {
-          text: t("cancel"),
+          text: "Cancel",
           style: "cancel",
         },
         {
-          text: t("logOut"),
+          text: "Log Out",
           style: "destructive",
           onPress: async () => {
-            try {
-              setLoggingOut(true);
+            const { error } = await supabase.auth.signOut();
 
-              const { error } = await supabase.auth.signOut();
-
-              if (error) throw error;
-
-              router.replace("/screens/LoginScreen");
-            } catch (error: any) {
-              Alert.alert(
-                t("logoutFailed"),
-                error?.message || t("logoutFailed")
-              );
-            } finally {
-              setLoggingOut(false);
+            if (error) {
+              Alert.alert("Logout Failed", error.message);
+              return;
             }
+
+            router.replace("/screens/LoginScreen");
           },
         },
       ]
     );
   };
 
-  const openLanguageSettings = () => {
-    router.push("/screens/LanguageSettings");
+  const getDisplayName = () => {
+    return profile?.full_name || "Client Account";
   };
 
-  if (loading || !isLanguageReady) {
+  // LOADING SCREEN
+  if (!fontsLoaded || loading) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator
-          size="large"
-          color={COLORS.primary}
-        />
-        <Text style={styles.loadingText}>
-          {t("loading")}
-        </Text>
-      </SafeAreaView>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>Loading settings...</Text>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <View style={styles.container}>
+      {/* MAIN SETTINGS SCROLLVIEW */}
       <ScrollView
+        style={styles.mainScroll}
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingTop: insets.top + 12,
+            paddingBottom: 130 + insets.bottom,
+          },
+        ]}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled={true}
+        bounces={true}
+        overScrollMode="auto"
+        scrollEnabled={true}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>
-            {t("settings")}
-          </Text>
+        <Text style={styles.pageTitle}>Settings</Text>
 
-          <Text style={styles.headerSubtitle}>
-            {t("settingsSubtitle")}
-          </Text>
-        </View>
+        <Text style={styles.pageSubtitle}>
+          Manage your account and app preferences.
+        </Text>
 
-        {/* Administrator Account */}
+        {/* CLIENT ACCOUNT */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            {t("administratorAccount")}
-          </Text>
+          <Text style={styles.sectionTitle}>Client Account</Text>
 
           <View style={styles.accountCard}>
-            <View style={styles.avatar}>
+            <View style={styles.avatarContainer}>
               <Ionicons
-                name="person"
-                size={27}
-                color={COLORS.white}
-              />
-            </View>
-
-            <View style={styles.accountInfo}>
-              <Text style={styles.accountName}>
-                {fullName}
-              </Text>
-
-              <Text style={styles.accountEmail}>
-                {email || t("noActiveAccount")}
-              </Text>
-
-              <View style={styles.adminBadge}>
-                <Ionicons
-                  name="shield-checkmark"
-                  size={12}
-                  color={COLORS.primary}
-                />
-
-                <Text style={styles.adminBadgeText}>
-                  {t("administrator")}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        {/* Language */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            {t("language")}
-          </Text>
-
-          <TouchableOpacity
-            style={styles.navigationCard}
-            onPress={openLanguageSettings}
-            activeOpacity={0.75}
-          >
-            <View style={styles.navigationIcon}>
-              <Ionicons
-                name="language-outline"
-                size={22}
+                name="person-outline"
+                size={28}
                 color={COLORS.primary}
               />
             </View>
 
-            <View style={styles.navigationInfo}>
-              <Text style={styles.navigationTitle}>
-                {t("appLanguage")}
+            <View style={styles.accountInfo}>
+              <Text style={styles.accountName} numberOfLines={1}>
+                {getDisplayName()}
               </Text>
 
-              <Text style={styles.navigationSubtitle}>
-                {t("choosePreferredLanguage")}
+              <Text style={styles.accountEmail} numberOfLines={1}>
+                {email}
               </Text>
+
+              <View style={styles.clientBadge}>
+                <Text style={styles.clientBadgeText}>
+                  Client Account
+                </Text>
+              </View>
             </View>
 
-            <View style={styles.languageValue}>
-              <Text style={styles.languageValueText}>
-                {language === "ceb" ? "Cebuano" : "English"}
-              </Text>
-
+            <TouchableOpacity
+              style={styles.editIconButton}
+              onPress={openEditProfile}
+              activeOpacity={0.7}
+            >
               <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={COLORS.gray}
+                name="create-outline"
+                size={19}
+                color={COLORS.primary}
               />
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Notification Preferences */}
+        {/* NOTIFICATION PREFERENCES */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
-            {t("notificationPreferences")}
+            Notification Preferences
           </Text>
 
-          <Text style={styles.sectionDescription}>
-            {t("chooseScarecrowNotifications")}
-          </Text>
-
-          <View style={styles.notificationCard}>
+          <View style={styles.card}>
             {NOTIFICATION_ITEMS.map((item, index) => (
-              <React.Fragment key={item.key}>
+              <View key={item.key}>
                 <View style={styles.notificationRow}>
                   <View style={styles.notificationIcon}>
                     <Ionicons
@@ -410,15 +468,15 @@ export default function SettingsScreen() {
 
                   <View style={styles.notificationInfo}>
                     <Text style={styles.notificationTitle}>
-                      {t(item.titleKey)}
+                      {item.title}
                     </Text>
 
                     <Text style={styles.notificationDescription}>
-                      {t(item.descriptionKey)}
+                      {item.description}
                     </Text>
                   </View>
 
-                  {savingKey === item.key ? (
+                  {savingPreference === item.key ? (
                     <ActivityIndicator
                       size="small"
                       color={COLORS.primary}
@@ -426,20 +484,18 @@ export default function SettingsScreen() {
                   ) : (
                     <Switch
                       value={preferences[item.key]}
-                      disabled={savingKey !== null}
                       onValueChange={(value) =>
-                        void toggleNotification(item.key, value)
+                        toggleNotification(item.key, value)
                       }
                       trackColor={{
-                        false: COLORS.border,
+                        false: "#D9D9D9",
                         true: COLORS.lightGreen,
                       }}
                       thumbColor={
                         preferences[item.key]
                           ? COLORS.primary
-                          : COLORS.gray
+                          : "#F4F3F4"
                       }
-                      accessibilityLabel={t(item.titleKey)}
                     />
                   )}
                 </View>
@@ -447,325 +503,569 @@ export default function SettingsScreen() {
                 {index !== NOTIFICATION_ITEMS.length - 1 && (
                   <View style={styles.separator} />
                 )}
-              </React.Fragment>
+              </View>
             ))}
           </View>
         </View>
 
-        {/* About */}
+        {/* LANGUAGE */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            {t("about")}
-          </Text>
+          <Text style={styles.sectionTitle}>Language</Text>
 
-          <View style={styles.aboutCard}>
-            <View style={styles.aboutLogo}>
-              <Image
-                source={require("../../assets/images/app-icon.png")}
-                style={styles.aboutLogoImage}
-                resizeMode="contain"
+          <TouchableOpacity
+            style={styles.menuCard}
+            activeOpacity={0.7}
+            onPress={() => router.push("/screens/LanguageSettings")}
+          >
+            <View style={styles.menuIcon}>
+              <Ionicons
+                name="language-outline"
+                size={21}
+                color={COLORS.primary}
               />
             </View>
 
-            <View style={styles.aboutInfo}>
-              <Text style={styles.aboutTitle}>
-                {t("appName")}
-              </Text>
-
-              <Text style={styles.aboutSubtitle}>
-                {t("smartCropProtectionSystem")}
-              </Text>
-
-              <Text style={styles.versionText}>
-                {t("version")} 1.0
+            <View style={styles.menuInfo}>
+              <Text style={styles.menuTitle}>App Language</Text>
+              <Text style={styles.menuDescription}>
+                Choose your preferred language.
               </Text>
             </View>
+
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color={COLORS.gray}
+            />
+          </TouchableOpacity>
+        </View>
+
+        {/* ABOUT */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>About</Text>
+
+          <View style={styles.menuCard}>
+            <View style={styles.menuIcon}>
+              <Ionicons
+                name="information-circle-outline"
+                size={21}
+                color={COLORS.primary}
+              />
+            </View>
+
+            <View style={styles.menuInfo}>
+              <Text style={styles.menuTitle}>ScareCROW</Text>
+              <Text style={styles.menuDescription}>
+                Smart Crop Protection System
+              </Text>
+            </View>
+
+            <Text style={styles.versionText}>v1.0</Text>
           </View>
         </View>
 
-        {/* Logout */}
+        {/* LOGOUT */}
         <TouchableOpacity
-          style={[
-            styles.logoutButton,
-            loggingOut && styles.logoutButtonDisabled,
-          ]}
+          style={styles.logoutButton}
           onPress={handleLogout}
-          disabled={loggingOut}
           activeOpacity={0.8}
         >
-          {loggingOut ? (
-            <ActivityIndicator
-              size="small"
-              color={COLORS.red}
-            />
-          ) : (
-            <>
-              <Ionicons
-                name="log-out-outline"
-                size={20}
-                color={COLORS.red}
-              />
-
-              <Text style={styles.logoutText}>
-                {t("logOut")}
-              </Text>
-            </>
-          )}
+          <Ionicons
+            name="log-out-outline"
+            size={20}
+            color={COLORS.red}
+          />
+          <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
 
         <Text style={styles.footerText}>
-          {t("scarecrowAdminApplication")}
+          ScareCROW Mobile App
         </Text>
       </ScrollView>
-    </SafeAreaView>
+
+      {/* EDIT PROFILE MODAL */}
+      <Modal
+        visible={editModalVisible}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => setEditModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={0}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Edit Profile</Text>
+                <Text style={styles.modalSubtitle}>
+                  Update your account information.
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => setEditModalVisible(false)}
+              >
+                <Ionicons
+                  name="close"
+                  size={22}
+                  color={COLORS.darkGreen}
+                />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+            >
+              <Text style={styles.inputLabel}>Full Name *</Text>
+              <TextInput
+                style={styles.textInput}
+                value={fullName}
+                onChangeText={setFullName}
+                placeholder="Enter your full name"
+                placeholderTextColor="#A0A0A0"
+                autoCapitalize="words"
+              />
+
+              <Text style={styles.inputLabel}>Contact Number</Text>
+              <TextInput
+                style={styles.textInput}
+                value={contactNumber}
+                onChangeText={setContactNumber}
+                placeholder="Enter your contact number"
+                placeholderTextColor="#A0A0A0"
+                keyboardType="phone-pad"
+              />
+
+              <Text style={styles.inputLabel}>Province</Text>
+              <TextInput
+                style={styles.textInput}
+                value={province}
+                onChangeText={setProvince}
+                placeholder="Enter your province"
+                placeholderTextColor="#A0A0A0"
+                autoCapitalize="words"
+              />
+
+              <Text style={styles.inputLabel}>Municipality / City</Text>
+              <TextInput
+                style={styles.textInput}
+                value={municipality}
+                onChangeText={setMunicipality}
+                placeholder="Enter your municipality or city"
+                placeholderTextColor="#A0A0A0"
+                autoCapitalize="words"
+              />
+
+              <Text style={styles.inputLabel}>Barangay</Text>
+              <TextInput
+                style={styles.textInput}
+                value={barangay}
+                onChangeText={setBarangay}
+                placeholder="Enter your barangay"
+                placeholderTextColor="#A0A0A0"
+                autoCapitalize="words"
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.saveButton,
+                  savingProfile && styles.disabledButton,
+                ]}
+                onPress={saveProfile}
+                disabled={savingProfile}
+                activeOpacity={0.8}
+              >
+                {savingProfile ? (
+                  <ActivityIndicator color={COLORS.white} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="save-outline"
+                      size={19}
+                      color={COLORS.white}
+                    />
+                    <Text style={styles.saveButtonText}>
+                      Save Changes
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setEditModalVisible(false)}
+                disabled={savingProfile}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // MAIN SCREEN
   container: {
     flex: 1,
+    width: "100%",
     backgroundColor: COLORS.white,
   },
+
+  // MAIN SCROLLVIEW
+  mainScroll: {
+    flex: 1,
+    width: "100%",
+  },
+
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 130,
+  },
+
+  // LOADING
   loadingContainer: {
     flex: 1,
     backgroundColor: COLORS.white,
     justifyContent: "center",
     alignItems: "center",
   },
+
   loadingText: {
     marginTop: 12,
-    color: COLORS.gray,
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontSize: 13,
+    color: COLORS.gray,
   },
-  content: {
-    padding: 20,
-    paddingBottom: 110,
-  },
-  header: {
-    marginBottom: 25,
-  },
-  headerTitle: {
-    fontSize: 26,
-    fontWeight: "700",
+
+  // PAGE HEADER
+  pageTitle: {
+    fontFamily: "PlusJakartaSans_700Bold",
+    fontSize: 25,
     color: COLORS.darkGreen,
   },
-  headerSubtitle: {
+
+  pageSubtitle: {
+    fontFamily: "PlusJakartaSans_400Regular",
     fontSize: 13,
     color: COLORS.gray,
     marginTop: 5,
-  },
-  section: {
     marginBottom: 25,
   },
+
+  // SECTIONS
+  section: {
+    marginBottom: 24,
+  },
+
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
+    fontFamily: "PlusJakartaSans_700Bold",
+    fontSize: 15,
     color: COLORS.darkGreen,
     marginBottom: 12,
   },
-  sectionDescription: {
-    fontSize: 12,
-    color: COLORS.gray,
-    lineHeight: 18,
-    marginTop: -5,
-    marginBottom: 12,
-  },
+
+  // ACCOUNT CARD
   accountCard: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 16,
     backgroundColor: COLORS.veryLightGreen,
-    borderRadius: 14,
     borderWidth: 1,
     borderColor: COLORS.border,
+    borderRadius: 16,
+    padding: 15,
   },
-  avatar: {
+
+  avatarContainer: {
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: COLORS.primary,
-    justifyContent: "center",
+    backgroundColor: COLORS.lightGreen,
     alignItems: "center",
-    marginRight: 13,
+    justifyContent: "center",
+    marginRight: 12,
   },
+
   accountInfo: {
     flex: 1,
+    minWidth: 0,
   },
+
   accountName: {
-    fontSize: 15,
-    fontWeight: "700",
+    fontFamily: "PlusJakartaSans_700Bold",
+    fontSize: 14,
     color: COLORS.darkGreen,
   },
+
   accountEmail: {
-    fontSize: 12,
+    fontFamily: "PlusJakartaSans_400Regular",
+    fontSize: 11,
     color: COLORS.gray,
     marginTop: 3,
   },
-  adminBadge: {
-    flexDirection: "row",
-    alignItems: "center",
+
+  clientBadge: {
     alignSelf: "flex-start",
     backgroundColor: COLORS.lightGreen,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
     borderRadius: 20,
-    marginTop: 8,
-    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    marginTop: 7,
   },
-  adminBadgeText: {
-    fontSize: 10,
-    fontWeight: "600",
+
+  clientBadgeText: {
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontSize: 9,
     color: COLORS.darkGreen,
   },
-  navigationCard: {
-    flexDirection: "row",
+
+  editIconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: COLORS.lightGreen,
     alignItems: "center",
-    padding: 15,
-    backgroundColor: COLORS.white,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  navigationIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: COLORS.veryLightGreen,
     justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
+    marginLeft: 8,
   },
-  navigationInfo: {
-    flex: 1,
-  },
-  navigationTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: COLORS.darkGreen,
-  },
-  navigationSubtitle: {
-    fontSize: 11,
-    color: COLORS.gray,
-    marginTop: 4,
-  },
-  languageValue: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  languageValueText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: COLORS.primary,
-  },
-  notificationCard: {
+
+  // NOTIFICATION CARD
+  card: {
     backgroundColor: COLORS.white,
-    borderRadius: 14,
     borderWidth: 1,
     borderColor: COLORS.border,
+    borderRadius: 16,
     paddingHorizontal: 14,
   },
+
   notificationRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 15,
   },
+
   notificationIcon: {
     width: 38,
     height: 38,
-    borderRadius: 11,
+    borderRadius: 12,
     backgroundColor: COLORS.veryLightGreen,
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
     marginRight: 11,
   },
+
   notificationInfo: {
     flex: 1,
-    paddingRight: 8,
+    minWidth: 0,
+    marginRight: 8,
   },
+
   notificationTitle: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontSize: 12,
     color: COLORS.darkGreen,
   },
+
   notificationDescription: {
+    fontFamily: "PlusJakartaSans_400Regular",
     fontSize: 10,
     color: COLORS.gray,
-    marginTop: 4,
-    lineHeight: 15,
+    marginTop: 3,
   },
+
   separator: {
     height: 1,
     backgroundColor: COLORS.border,
   },
-  aboutCard: {
+
+  // MENU CARDS
+  menuCard: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 15,
-    borderRadius: 14,
-    backgroundColor: COLORS.veryLightGreen,
+    backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: COLORS.border,
+    borderRadius: 15,
+    padding: 14,
   },
-  aboutLogo: {
-    width: 45,
-    height: 45,
+
+  menuIcon: {
+    width: 40,
+    height: 40,
     borderRadius: 12,
-    backgroundColor: COLORS.lightGreen,
-    justifyContent: "center",
+    backgroundColor: COLORS.veryLightGreen,
     alignItems: "center",
+    justifyContent: "center",
     marginRight: 12,
   },
 
-  aboutLogoImage: {
-  width: 38,
-  height: 38,
-  borderRadius: 8,
-},
-
-  aboutInfo: {
+  menuInfo: {
     flex: 1,
+    minWidth: 0,
   },
-  aboutTitle: {
-    fontSize: 15,
-    fontWeight: "700",
+
+  menuTitle: {
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontSize: 12,
     color: COLORS.darkGreen,
   },
-  aboutSubtitle: {
-    fontSize: 11,
+
+  menuDescription: {
+    fontFamily: "PlusJakartaSans_400Regular",
+    fontSize: 10,
     color: COLORS.gray,
     marginTop: 3,
   },
+
   versionText: {
-    fontSize: 10,
-    color: COLORS.primary,
-    marginTop: 5,
-    fontWeight: "600",
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontSize: 11,
+    color: COLORS.gray,
   },
+
+  // LOGOUT
   logoutButton: {
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
-    padding: 15,
-    borderWidth: 1,
-    borderColor: "#F2D5D5",
-    backgroundColor: "#FFF8F8",
-    borderRadius: 12,
-    gap: 9,
-    marginTop: 2,
+    justifyContent: "center",
+    backgroundColor: COLORS.lightRed,
+    borderRadius: 13,
+    paddingVertical: 14,
+    marginTop: 5,
   },
-  logoutButtonDisabled: {
-    opacity: 0.6,
-  },
+
   logoutText: {
-    fontSize: 14,
-    fontWeight: "700",
+    fontFamily: "PlusJakartaSans_700Bold",
+    fontSize: 13,
     color: COLORS.red,
+    marginLeft: 8,
   },
+
   footerText: {
+    fontFamily: "PlusJakartaSans_400Regular",
     fontSize: 10,
     color: COLORS.gray,
     textAlign: "center",
     marginTop: 20,
+  },
+
+  // EDIT PROFILE MODAL
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+
+  modalContainer: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: Platform.OS === "ios" ? 30 : 15,
+    maxHeight: "90%",
+    width: "100%",
+  },
+
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 22,
+  },
+
+  modalTitle: {
+    fontFamily: "PlusJakartaSans_700Bold",
+    fontSize: 19,
+    color: COLORS.darkGreen,
+  },
+
+  modalSubtitle: {
+    fontFamily: "PlusJakartaSans_400Regular",
+    fontSize: 11,
+    color: COLORS.gray,
+    marginTop: 4,
+  },
+
+  closeButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.veryLightGreen,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  modalScroll: {
+    flexShrink: 1,
+  },
+
+  modalScrollContent: {
+    paddingBottom: 15,
+  },
+
+  inputLabel: {
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontSize: 12,
+    color: COLORS.darkGreen,
+    marginBottom: 7,
+    marginTop: 13,
+  },
+
+  textInput: {
+    height: 48,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 11,
+    paddingHorizontal: 13,
+    fontFamily: "PlusJakartaSans_400Regular",
+    fontSize: 12,
+    color: COLORS.darkGreen,
+    backgroundColor: COLORS.white,
+  },
+
+  saveButton: {
+    height: 49,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    marginTop: 25,
+  },
+
+  disabledButton: {
+    opacity: 0.6,
+  },
+
+  saveButtonText: {
+    fontFamily: "PlusJakartaSans_700Bold",
+    fontSize: 13,
+    color: COLORS.white,
+    marginLeft: 8,
+  },
+
+  cancelButton: {
+    alignItems: "center",
+    paddingVertical: 14,
+    marginTop: 5,
+  },
+
+  cancelButtonText: {
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontSize: 12,
+    color: COLORS.gray,
   },
 });

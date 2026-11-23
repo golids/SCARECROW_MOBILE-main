@@ -1,5 +1,5 @@
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -16,6 +16,8 @@ import {
   PlusJakartaSans_700Bold,
 } from "@expo-google-fonts/plus-jakarta-sans";
 
+import { supabase } from "../lib/supabase";
+
 const COLORS = {
   background: "#F7F9E9",
   darkGreen: "#123B25",
@@ -26,6 +28,8 @@ const COLORS = {
 export default function Index() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
+  const [checkingSession, setCheckingSession] = useState(true);
 
   // Animation values
   const logoScale = useRef(new Animated.Value(0.6)).current;
@@ -41,7 +45,6 @@ export default function Index() {
   useEffect(() => {
     if (!fontsLoaded) return;
 
-    // Entrance animations
     Animated.sequence([
       Animated.parallel([
         Animated.timing(logoOpacity, {
@@ -70,15 +73,7 @@ export default function Index() {
         }),
       ]),
     ]).start();
-
-    // Redirect after 2 seconds
-    const timer = setTimeout(() => {
-      router.replace("/screens/LoginScreen");
-    }, 2000);
-
-    return () => clearTimeout(timer);
   }, [
-    router,
     fontsLoaded,
     logoOpacity,
     logoScale,
@@ -86,59 +81,121 @@ export default function Index() {
     textTranslateY,
   ]);
 
-  return (
-    <View
-      style={[
-        styles.container,
-        {
-          paddingTop: insets.top,
-          paddingBottom: insets.bottom,
-          paddingLeft: insets.left,
-          paddingRight: insets.right,
-        },
-      ]}
-    >
-      {/* Phone Status Bar */}
-      <StatusBar
-        style="dark"
-        hidden={false}
-      />
+  useEffect(() => {
+    if (!fontsLoaded) return;
 
-      <View style={styles.content}>
-        {/* Logo */}
-        <Animated.Image
-          source={require("../assets/images/app-logo.png")}
-          style={[
-            styles.logo,
-            {
-              opacity: logoOpacity,
-              transform: [{ scale: logoScale }],
-            },
-          ]}
-          resizeMode="contain"
-        />
+    let isMounted = true;
 
-        {/* App Name and Abbreviation */}
-        <Animated.View
-          style={[
-            styles.textContainer,
-            {
-              opacity: textOpacity,
-              transform: [{ translateY: textTranslateY }],
-            },
-          ]}
-        >
-          <Text style={styles.appName}>
-            SCARE<Text style={styles.appNameBold}>CROW</Text>
-          </Text>
+    const checkSession = async () => {
+      try {
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
 
-          <Text style={styles.abbrName}>
-            Crop Reliable Operative Warden
-          </Text>
-        </Animated.View>
+        if (sessionError) {
+          throw sessionError;
+        }
+
+        if (!session) {
+          if (isMounted) {
+            router.replace("/screens/LoginScreen");
+          }
+          return;
+        }
+
+        // Verify the existing account's role.
+        const { data: isAdmin, error: roleError } =
+          await supabase.rpc("is_scarecrow_admin");
+
+        if (roleError) {
+          throw roleError;
+        }
+
+        if (isAdmin) {
+          await supabase.auth.signOut();
+
+          if (isMounted) {
+            router.replace("/screens/LoginScreen");
+          }
+          return;
+        }
+
+        // Fail closed when the account cannot be verified.
+        await supabase.auth.signOut();
+
+        if (isMounted) {
+          router.replace("/screens/LoginScreen");
+        }
+      } finally {
+        if (isMounted) {
+          setCheckingSession(false);
+        }
+      }
+    };
+
+    // Keep the splash screen visible briefly while checking the session.
+    const timer = setTimeout(() => {
+      void checkSession();
+    }, 2000);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [fontsLoaded, router]);
+
+  if (!fontsLoaded || checkingSession) {
+    return (
+      <View
+        style={[
+          styles.container,
+          {
+            paddingTop: insets.top,
+            paddingBottom: insets.bottom,
+            paddingLeft: insets.left,
+            paddingRight: insets.right,
+          },
+        ]}
+      >
+        <StatusBar style="dark" hidden={false} />
+
+        <View style={styles.content}>
+          <Animated.Image
+            source={require("../assets/images/app-logo.png")}
+            style={[
+              styles.logo,
+              {
+                opacity: logoOpacity,
+                transform: [{ scale: logoScale }],
+              },
+            ]}
+            resizeMode="contain"
+          />
+
+          <Animated.View
+            style={[
+              styles.textContainer,
+              {
+                opacity: textOpacity,
+                transform: [{ translateY: textTranslateY }],
+              },
+            ]}
+          >
+            <Text style={styles.appName}>
+              SCARE<Text style={styles.appNameBold}>CROW</Text>
+            </Text>
+
+            <Text style={styles.abbrName}>
+              Crop Reliable Operative Warden
+            </Text>
+          </Animated.View>
+        </View>
       </View>
-    </View>
-  );
+    );
+  }
+
+  return null;
 }
 
 const styles = StyleSheet.create({

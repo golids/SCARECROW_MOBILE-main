@@ -1,64 +1,164 @@
--- ScareCROW: devices + detection_logs
--- Run this in Supabase SQL Editor once. Matches app/lib/devices.ts exactly.
 
-create extension if not exists "pgcrypto";
+-- =========================================================
+-- SCARECROW DATABASE SCHEMA
+-- Client Mobile App + Admin Web App + Raspberry Pi
+-- Existing Supabase project
+-- =========================================================
 
--- One row per physical RPi camera (2 rows for your setup)
-create table if not exists devices (
-  id          uuid primary key default gen_random_uuid(),
-  name        text not null,               -- "Field Scarecrow #1"
-  location    text not null,               -- "North Field, Section A"
-  ip_address  text,                        -- "192.168.1.50" — local LAN IP, set once on-site
-  port        int not null default 5000,   -- Flask/MJPEG server port on the Pi
-  status      text not null default 'offline' check (status in ('online','offline')),
-  last_seen   timestamptz,
-  created_at  timestamptz not null default now()
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- =========================================================
+-- 1. DEVICES
+-- One row per physical Raspberry Pi camera.
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS public.devices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    location TEXT NOT NULL,
+    ip_address TEXT,
+    port INT NOT NULL DEFAULT 5000,
+    status TEXT NOT NULL DEFAULT 'offline'
+        CHECK (status IN ('online', 'offline')),
+    last_seen TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_archived BOOLEAN NOT NULL DEFAULT FALSE,
+    archived_at TIMESTAMPTZ,
+    archived_by UUID
 );
 
--- One row per ML detection or device event, written by the Pi
-create table if not exists detection_logs (
-  id          bigint generated always as identity primary key,
-  device_id   uuid not null references devices(id) on delete cascade,
-  event_type  text not null,               -- 'bird_detected' | 'motion' | 'offline' | 'online' | 'system' | 'battery'
-  label       text not null,               -- "Birds Detected (5)" — human-readable, shown in Activity Logs
-  species     text,                        -- 'crow' | 'pigeon' | ... (from the ML model), nullable
-  confidence  numeric,                     -- 0.0–1.0, nullable
-  image_url   text,                        -- optional snapshot in Supabase Storage
-  created_at  timestamptz not null default now()
+-- =========================================================
+-- 2. DETECTION LOGS
+-- One row per detection or device event.
+-- Written by the Raspberry Pi through a secure server-side
+-- process using the service role key.
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS public.detection_logs (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    device_id UUID NOT NULL
+        REFERENCES public.devices(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    label TEXT NOT NULL,
+    species TEXT,
+    confidence NUMERIC,
+    image_url TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-create index if not exists detection_logs_created_at_idx on detection_logs (created_at desc);
-create index if not exists detection_logs_device_id_idx on detection_logs (device_id);
+-- =========================================================
+-- 3. DEVICE ASSIGNMENTS
+-- This table should already exist in your current project.
+-- It connects farmer/client accounts to assigned devices.
+--
+-- Existing columns:
+-- id, device_id, user_id, assigned_at,
+-- unassigned_at, assigned_by
+-- =========================================================
 
--- Seed your 2 cameras (edit names/locations, leave ip_address null until installed on-site)
-insert into devices (name, location) values
-  ('Field Scarecrow #1', 'North Field, Section A'),
-  ('Field Scarecrow #2', 'East Field, Section B')
-on conflict do nothing;
+-- Do not recreate an existing device_assignments table.
 
--- Row Level Security -----------------------------------------------------
--- The app only ever reads (SELECT) with the anon key. Writes to these two
--- tables should come ONLY from the Pi, using the Supabase *service role* key
--- (never bundle the service role key inside the mobile app).
+-- =========================================================
+-- 4. INDEXES
+-- =========================================================
 
-alter table devices enable row level security;
-alter table detection_logs enable row level security;
+CREATE INDEX IF NOT EXISTS detection_logs_created_at_idx
+ON public.detection_logs (created_at DESC);
 
-create policy "Authenticated users can read devices"
-  on devices for select
-  to authenticated
-  using (true);
+CREATE INDEX IF NOT EXISTS detection_logs_device_id_idx
+ON public.detection_logs (device_id);
 
-create policy "Authenticated users can read detection_logs"
-  on detection_logs for select
-  to authenticated
-  using (true);
+CREATE INDEX IF NOT EXISTS device_assignments_user_device_idx
+ON public.device_assignments (user_id, device_id);
 
--- Optional: let a logged-in user edit a device's IP from Settings
--- (used by app/lib/devices.ts -> updateDeviceIp). Remove if you'd rather IPs
--- only ever be set from the Pi/service role.
-create policy "Authenticated users can update device ip"
-  on devices for update
-  to authenticated
-  using (true)
-  with check (true);
+CREATE INDEX IF NOT EXISTS device_assignments_active_idx
+ON public.device_assignments (device_id, user_id)
+WHERE unassigned_at IS NULL;
+
+-- =========================================================
+-- 5. OPTIONAL SEED DATA
+-- Only insert these if you still need the two sample devices.
+-- Do not run repeatedly if you do not want duplicates.
+-- =========================================================
+
+-- INSERT INTO public.devices (name, location)
+-- VALUES
+--     ('Field Scarecrow #1', 'North Field, Section A'),
+--     ('Field Scarecrow #2', 'East Field, Section B');
+
+-- =========================================================
+-- 6. ENABLE ROW LEVEL SECURITY
+-- =========================================================
+
+ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.detection_logs ENABLE ROW LEVEL SECURITY;
+
+-- =========================================================
+-- 7. DEVICES POLICIES
+-- Admins: read all devices.
+-- Clients: read only assigned, active, non-archived devices.
+-- Clients cannot update device records.
+-- =========================================================
+
+DROP POLICY IF EXISTS
+"Authenticated users can read devices"
+ON public.devices;
+
+DROP POLICY IF EXISTS
+"Admins and assigned clients can read devices"
+ON public.devices;
+
+DROP POLICY IF EXISTS
+"Authenticated users can update device ip"
+ON public.devices;
+
+CREATE POLICY "Admins and assigned clients can read devices"
+ON public.devices
+FOR SELECT
+TO authenticated
+USING (
+    public.is_scarecrow_admin()
+    OR (
+        is_archived = FALSE
+        AND EXISTS (
+            SELECT 1
+            FROM public.device_assignments AS da
+            WHERE da.device_id = devices.id
+              AND da.user_id = auth.uid()
+              AND da.unassigned_at IS NULL
+        )
+    )
+);
+
+-- =========================================================
+-- 8. DETECTION LOG POLICIES
+-- Admins: read all logs.
+-- Clients: read logs belonging to their assigned devices.
+-- =========================================================
+
+DROP POLICY IF EXISTS
+"Authenticated users can read detection_logs"
+ON public.detection_logs;
+
+DROP POLICY IF EXISTS
+"Admins and assigned clients can read detection logs"
+ON public.detection_logs;
+
+CREATE POLICY "Admins and assigned clients can read detection logs"
+ON public.detection_logs
+FOR SELECT
+TO authenticated
+USING (
+    public.is_scarecrow_admin()
+    OR EXISTS (
+        SELECT 1
+        FROM public.device_assignments AS da
+        WHERE da.device_id = detection_logs.device_id
+          AND da.user_id = auth.uid()
+          AND da.unassigned_at IS NULL
+    )
+);
+
+-- =========================================================
+-- END OF SCHEMA
+-- =========================================================

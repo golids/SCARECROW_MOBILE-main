@@ -1,4 +1,3 @@
-// mobile/lib/devices.ts
 
 import { supabase } from "./supabase";
 
@@ -27,10 +26,13 @@ export interface DetectionLog {
   created_at: string;
 }
 
-/**
- * A device is online only if its latest heartbeat
- * was received within the last 30 seconds.
- */
+let channelCounter = 0;
+
+function uniqueChannel(name: string) {
+  channelCounter += 1;
+  return `${name}-${channelCounter}`;
+}
+
 export function isRecentlyAlive(device: Device): boolean {
   if (!device.last_seen) return false;
 
@@ -42,13 +44,15 @@ export function isRecentlyAlive(device: Device): boolean {
 }
 
 /**
- * Fetch active devices only.
- * Archived devices are excluded, matching the web dashboard.
+ * Fetch only active devices visible to the authenticated client.
+ * Supabase RLS must restrict this query to assigned devices.
  */
 export async function fetchDevices(): Promise<Device[]> {
   const { data, error } = await supabase
     .from("devices")
-    .select("*")
+    .select(
+      "id, name, location, ip_address, port, status, last_seen, is_archived"
+    )
     .eq("is_archived", false)
     .order("name", { ascending: true });
 
@@ -57,19 +61,41 @@ export async function fetchDevices(): Promise<Device[]> {
   return (data ?? []) as Device[];
 }
 
-// Give each subscription a unique channel name.
-let channelCounter = 0;
+/**
+ * Fetch detection records visible to the authenticated client.
+ * RLS on detection_logs must restrict records to assigned devices.
+ */
+export async function fetchDetectionLogs(
+  limit = 50
+): Promise<DetectionLog[]> {
+  const { data, error } = await supabase
+    .from("detection_logs")
+    .select("id, device_id, event_type, label, species, confidence, image_url, created_at, devices(name)")
+    .order("created_at", { ascending: false })
+    .limit(limit);
 
-const uniqueChannel = (base: string) =>
-  `${base}-${++channelCounter}`;
+  if (error) throw error;
+
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    device_id: row.device_id,
+    device_name: row.devices?.name ?? "Unknown device",
+    event_type: row.event_type,
+    label: row.label,
+    species: row.species ?? null,
+    confidence: row.confidence ?? null,
+    image_url: row.image_url ?? null,
+    created_at: row.created_at,
+  }));
+}
 
 /**
- * Listen for device inserts, updates, and deletes.
- * The screen reloads the active-device list after each change.
+ * Subscribe to device changes.
+ * Re-fetching the list ensures the screen uses current RLS-filtered data.
  */
 export function subscribeToDevices(onChange: () => void) {
   const channel = supabase
-    .channel(uniqueChannel("devices-changes"))
+    .channel(uniqueChannel("client-devices"))
     .on(
       "postgres_changes",
       {
@@ -87,42 +113,13 @@ export function subscribeToDevices(onChange: () => void) {
 }
 
 /**
- * Fetch recent detection and device event records.
- */
-export async function fetchDetectionLogs(
-  limit = 50
-): Promise<DetectionLog[]> {
-  const { data, error } = await supabase
-    .from("detection_logs")
-    .select("*, devices(name)")
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (error) throw error;
-
-  return (data ?? []).map((row: any) => ({
-    id: row.id,
-    device_id: row.device_id,
-    device_name: row.devices?.name ?? "Unknown device",
-    event_type: row.event_type,
-    label: row.label,
-    species: row.species,
-    confidence: row.confidence,
-    image_url: row.image_url,
-    created_at: row.created_at,
-  }));
-}
-
-/**
- * Listen for new detection log entries.
- * Fetch the related device name because the Realtime payload
- * does not contain the joined device record.
+ * Subscribe to new detection records.
  */
 export function subscribeToDetectionLogs(
   onInsert: (log: DetectionLog) => void
 ) {
   const channel = supabase
-    .channel(uniqueChannel("detection-logs-changes"))
+    .channel(uniqueChannel("client-detection-logs"))
     .on(
       "postgres_changes",
       {
@@ -132,23 +129,26 @@ export function subscribeToDetectionLogs(
       },
       async (payload) => {
         const row = payload.new as any;
-        const deviceId = row.device_id;
 
+        // Confirm that this client can read the related device.
+        // RLS on devices prevents exposing another client's device name.
         const { data: device } = await supabase
           .from("devices")
           .select("name")
-          .eq("id", deviceId)
+          .eq("id", row.device_id)
           .maybeSingle();
+
+        if (!device) return;
 
         onInsert({
           id: row.id,
-          device_id: deviceId,
-          device_name: device?.name ?? "Unknown device",
+          device_id: row.device_id,
+          device_name: device.name ?? "Unknown device",
           event_type: row.event_type,
           label: row.label,
-          species: row.species,
-          confidence: row.confidence,
-          image_url: row.image_url,
+          species: row.species ?? null,
+          confidence: row.confidence ?? null,
+          image_url: row.image_url ?? null,
           created_at: row.created_at,
         });
       }
@@ -158,32 +158,4 @@ export function subscribeToDetectionLogs(
   return () => {
     void supabase.removeChannel(channel);
   };
-}
-
-/**
- * Update a device's connection details.
- */
-export async function updateDeviceIp(
-  deviceId: string,
-  ip_address: string,
-  port: number
-) {
-  const { error } = await supabase
-    .from("devices")
-    .update({ ip_address, port })
-    .eq("id", deviceId);
-
-  if (error) throw error;
-}
-
-export async function fetchArchivedDevices(): Promise<Device[]> {
-  const { data, error } = await supabase
-    .from("devices")
-    .select("*")
-    .eq("is_archived", true)
-    .order("name", { ascending: true });
-
-  if (error) throw error;
-
-  return (data ?? []) as Device[];
 }

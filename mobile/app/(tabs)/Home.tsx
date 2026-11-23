@@ -1,3 +1,4 @@
+
 import React from "react";
 import { useRouter } from "expo-router";
 import {
@@ -107,12 +108,21 @@ function getTargetDate(
 
   if (preset === "custom") return customDate;
 
-  return null; // "all" -> no date filtering
+  return null;
 }
 
 function formatLastSeen(
   value: string | null,
-  t: (key: "never" | "unknown" | "justNow" | "minAgo" | "hrAgo" | "yesterday" | "daysAgo") => string
+  t: (
+    key:
+      | "never"
+      | "unknown"
+      | "justNow"
+      | "minAgo"
+      | "hrAgo"
+      | "yesterday"
+      | "daysAgo"
+  ) => string
 ) {
   if (!value) return t("never");
 
@@ -469,7 +479,10 @@ export default function HomeScreen() {
 
   /* ---------------------------- DATE PICKER ------------------------------ */
 
-  const handleDateChange = (event: DateTimePickerEvent, date?: Date) => {
+  const handleDateChange = (
+    event: DateTimePickerEvent,
+    date?: Date
+  ) => {
     setShowDatePicker(false);
 
     if (event.type === "set" && date) {
@@ -545,7 +558,8 @@ export default function HomeScreen() {
     const detectedToday = selectedLogs.filter((log) => {
       return (
         isBirdDetection(log) &&
-        new Date(log.created_at).toDateString() === new Date().toDateString()
+        new Date(log.created_at).toDateString() ===
+          new Date().toDateString()
       );
     }).length;
 
@@ -564,7 +578,6 @@ export default function HomeScreen() {
             ? Number((birdLogs.length / uniqueDays).toFixed(1))
             : 0;
       } else {
-        // A single day was selected, so the average is that day's count.
         averagePerDay = birdLogs.length;
       }
     }
@@ -687,15 +700,7 @@ export default function HomeScreen() {
             <TouchableOpacity
               style={styles.viewAllButton}
               activeOpacity={0.7}
-              onPress={() =>
-                router.push({
-                  pathname: "/settings",
-                  params: {
-                    section: "devices",
-                    t: String(Date.now()),
-                  },
-                } as any)
-              }
+              onPress={() => router.push("/devices")}
             >
               <Text style={styles.viewAllText}>
                 {t("devices")}
@@ -811,7 +816,9 @@ export default function HomeScreen() {
                 <Ionicons
                   name="calendar-outline"
                   size={12}
-                  color={preset === "custom" ? COLORS.white : "#526456"}
+                  color={
+                    preset === "custom" ? COLORS.white : "#526456"
+                  }
                 />
 
                 <Text
@@ -826,7 +833,7 @@ export default function HomeScreen() {
                         day: "numeric",
                         year: "numeric",
                       })
-                    : ("custom")}
+                    : "custom"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -947,8 +954,6 @@ const styles = StyleSheet.create({
     paddingBottom: 125,
   },
 
-  /* HEADER */
-
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -984,8 +989,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  /* SUMMARY CARDS */
 
   summaryGrid: {
     flexDirection: "row",
@@ -1049,8 +1052,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  /* PANELS */
-
   panel: {
     backgroundColor: COLORS.white,
     borderWidth: 1,
@@ -1098,8 +1099,6 @@ const styles = StyleSheet.create({
     fontFamily: "PlusJakartaSans_700Bold",
     color: COLORS.primary,
   },
-
-  /* DEVICE LIST */
 
   deviceList: {
     gap: 4,
@@ -1217,8 +1216,6 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
   },
 
-  /* LOADING AND EMPTY STATES */
-
   loadingState: {
     minHeight: 100,
     alignItems: "center",
@@ -1255,8 +1252,6 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
 
-  /* FILTERS */
-
   filterRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1291,8 +1286,6 @@ const styles = StyleSheet.create({
   filterTextActive: {
     color: COLORS.white,
   },
-
-  /* DEVICE STATISTICS */
 
   deviceStatsGrid: {
     flexDirection: "row",
@@ -1350,8 +1343,6 @@ const styles = StyleSheet.create({
     marginTop: 7,
   },
 
-  /* INFORMATION NOTE */
-
   noteStrip: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -1369,8 +1360,6 @@ const styles = StyleSheet.create({
     fontFamily: "PlusJakartaSans_400Regular",
     color: "#61715E",
   },
-
-  /* FOOTER */
 
   footer: {
     alignItems: "center",
