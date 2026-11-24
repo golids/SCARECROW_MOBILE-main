@@ -14,21 +14,21 @@
       "package": "com.golids.scarecrow",
       "adaptiveIcon": {
         "backgroundColor": "#F5F5DC",
-        "foregroundImage": "./assets/images/app-icon.png"
+        "foregroundImage": "./assets/images/android-app-icon.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/web-icon.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/app-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
