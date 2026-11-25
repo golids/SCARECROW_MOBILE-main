@@ -14,7 +14,10 @@ import {
   RefreshControl,
   Platform,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import {
+  Bird, AlertTriangle, Activity, ChevronUp, ChevronDown,
+  RefreshCw, CalendarDays, Filter, Check, Clock3,
+} from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import DateTimePicker, {
   DateTimePickerEvent,
@@ -29,6 +32,7 @@ import {
 } from "../../lib/devices";
 
 import { useLanguage } from "../context/LanguageContext";
+import { useTheme, type ThemeColors } from "../../context/ThemeContext";
 
 type ScreenMode = "detections" | "alerts";
 type DateFilter = "all" | "today" | "yesterday" | "custom";
@@ -39,21 +43,6 @@ type Props = {
 
 const LOG_LIMIT = 500;
 const PREVIEW_LIMIT = 5;
-
-const COLORS = {
-  white: "#FFFFFF",
-  darkGreen: "#123B25",
-  primary: "#4F8F3A",
-  lightGreen: "#E8F0B8",
-  veryLightGreen: "#F7F9E9",
-  gold: "#D9B83F",
-  lightGold: "#FBF7E7",
-  gray: "#808080",
-  lightGray: "#F5F5F5",
-  border: "#E5E9D2",
-  red: "#D32F2F",
-  lightRed: "#FDECEA",
-};
 
 const FONT = {
   regular: "PlusJakartaSans_400Regular",
@@ -153,32 +142,7 @@ function getEventLabel(
   );
 }
 
-function getEventIcon(
-  eventType: string
-): keyof typeof Ionicons.glyphMap {
-  const type = eventType.toLowerCase();
-
-  if (type === "offline") return "cloud-offline-outline";
-  if (type === "online") return "cloud-done-outline";
-
-  if (type === "battery" || type === "low_battery") {
-    return "battery-dead-outline";
-  }
-
-  if (type === "device_error" || type === "error") {
-    return "alert-circle-outline";
-  }
-
-  if (type === "device_recovery" || type === "recovery") {
-    return "checkmark-circle-outline";
-  }
-
-  if (type === "motion") return "scan-outline";
-
-  return "information-circle-outline";
-}
-
-function getEventColor(eventType: string) {
+function getEventColor(eventType: string, COLORS: ThemeColors, isDark: boolean) {
   const type = eventType.toLowerCase();
 
   if (
@@ -207,12 +171,14 @@ function getEventColor(eventType: string) {
 
   return {
     background: COLORS.lightGold,
-    foreground: "#9A7B13",
+    foreground: isDark ? COLORS.gold : "#9A7B13",
   };
 }
 
 export default function LogHistoryScreen({ mode }: Props) {
   const { t } = useLanguage();
+  const { colors: COLORS, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(COLORS), [COLORS]);
 
   const isDetectionScreen = mode === "detections";
 
@@ -355,7 +321,8 @@ export default function LogHistoryScreen({ mode }: Props) {
 
   const renderLog = (log: DetectionLog) => {
     const bird = isBirdDetection(log);
-    const eventColor = getEventColor(log.event_type);
+    const eventColor = getEventColor(log.event_type, COLORS, isDark);
+    const EventIcon = bird ? Bird : AlertTriangle;
 
     return (
       <View key={String(log.id)} style={styles.logCard}>
@@ -370,12 +337,7 @@ export default function LogHistoryScreen({ mode }: Props) {
               },
             ]}
           >
-            <Ionicons
-              name={
-                bird
-                  ? "warning-outline"
-                  : getEventIcon(log.event_type)
-              }
+            <EventIcon
               size={21}
               color={
                 bird
@@ -397,9 +359,10 @@ export default function LogHistoryScreen({ mode }: Props) {
             </Text>
           </View>
 
-          <Text style={styles.logTime}>
-            {formatTime(log.created_at)}
-          </Text>
+          <View style={styles.logTimeRow}>
+            <Clock3 size={12} color={COLORS.gray} />
+            <Text style={styles.logTime}>{formatTime(log.created_at)}</Text>
+          </View>
         </View>
 
         {bird ? (
@@ -451,6 +414,7 @@ export default function LogHistoryScreen({ mode }: Props) {
 
     const sectionKey = `${mode}-${title}`;
     const expanded = !!expandedSections[sectionKey];
+    const ExpandIcon = expanded ? ChevronUp : ChevronDown;
 
     const visibleItems = expanded
       ? items
@@ -498,8 +462,7 @@ export default function LogHistoryScreen({ mode }: Props) {
                 : `${t("showAll")} ${items.length} ${t("records")}`}
             </Text>
 
-            <Ionicons
-              name={expanded ? "chevron-up" : "chevron-down"}
+            <ExpandIcon
               size={16}
               color={COLORS.primary}
             />
@@ -508,6 +471,10 @@ export default function LogHistoryScreen({ mode }: Props) {
       </View>
     );
   };
+
+  const SummaryIcon = isDetectionScreen ? Bird : AlertTriangle;
+  const DropdownIcon = deviceDropdownOpen ? ChevronUp : ChevronDown;
+  const EmptyIcon = isDetectionScreen ? Bird : Activity;
 
   const title = isDetectionScreen
     ? t("detections")
@@ -531,8 +498,7 @@ export default function LogHistoryScreen({ mode }: Props) {
           onPress={refresh}
           activeOpacity={0.7}
         >
-          <Ionicons
-            name="refresh-outline"
+          <RefreshCw
             size={21}
             color={COLORS.darkGreen}
           />
@@ -541,12 +507,7 @@ export default function LogHistoryScreen({ mode }: Props) {
 
       <View style={styles.summaryCard}>
         <View style={styles.summaryIcon}>
-          <Ionicons
-            name={
-              isDetectionScreen
-                ? "radio-outline"
-                : "notifications-outline"
-            }
+          <SummaryIcon
             size={23}
             color={COLORS.primary}
           />
@@ -608,8 +569,7 @@ export default function LogHistoryScreen({ mode }: Props) {
               dateFilter === "custom" && styles.activeFilterButton,
             ]}
           >
-            <Ionicons
-              name="calendar-outline"
+            <CalendarDays
               size={13}
               color={
                 dateFilter === "custom"
@@ -637,6 +597,7 @@ export default function LogHistoryScreen({ mode }: Props) {
             mode="date"
             display={Platform.OS === "ios" ? "inline" : "default"}
             maximumDate={new Date()}
+            themeVariant={isDark ? "dark" : "light"}
             onChange={handleDateChange}
           />
         )}
@@ -648,8 +609,7 @@ export default function LogHistoryScreen({ mode }: Props) {
           }
           activeOpacity={0.8}
         >
-          <Ionicons
-            name="hardware-chip-outline"
+          <Filter
             size={17}
             color={COLORS.darkGreen}
           />
@@ -661,12 +621,7 @@ export default function LogHistoryScreen({ mode }: Props) {
                   ?.name || t("selectedDevice")}
           </Text>
 
-          <Ionicons
-            name={
-              deviceDropdownOpen
-                ? "chevron-up"
-                : "chevron-down"
-            }
+          <DropdownIcon
             size={16}
             color={COLORS.darkGreen}
           />
@@ -692,8 +647,7 @@ export default function LogHistoryScreen({ mode }: Props) {
               </Text>
 
               {selectedDevice === "all" && (
-                <Ionicons
-                  name="checkmark"
+                <Check
                   size={18}
                   color={COLORS.primary}
                 />
@@ -720,8 +674,7 @@ export default function LogHistoryScreen({ mode }: Props) {
                 </Text>
 
                 {selectedDevice === device.id && (
-                  <Ionicons
-                    name="checkmark"
+                  <Check
                     size={18}
                     color={COLORS.primary}
                   />
@@ -757,6 +710,8 @@ export default function LogHistoryScreen({ mode }: Props) {
               refreshing={refreshing}
               onRefresh={refresh}
               tintColor={COLORS.primary}
+              colors={[COLORS.primary]}
+              progressBackgroundColor={COLORS.surface}
             />
           }
         >
@@ -778,12 +733,7 @@ export default function LogHistoryScreen({ mode }: Props) {
           {filteredLogs.length === 0 ? (
             <View style={styles.emptyState}>
               <View style={styles.emptyIcon}>
-                <Ionicons
-                  name={
-                    isDetectionScreen
-                      ? "eye-outline"
-                      : "notifications-off-outline"
-                  }
+                <EmptyIcon
                   size={34}
                   color={COLORS.primary}
                 />
@@ -818,10 +768,10 @@ export default function LogHistoryScreen({ mode }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (COLORS: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.background,
   },
 
   header: {
@@ -869,7 +819,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 14,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.surface,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -893,7 +843,7 @@ const styles = StyleSheet.create({
   },
 
   summaryTag: {
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.surface,
     borderRadius: 20,
     paddingHorizontal: 11,
     paddingVertical: 6,
@@ -945,7 +895,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 12,
@@ -962,7 +912,7 @@ const styles = StyleSheet.create({
 
   dropdown: {
     marginTop: 5,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 12,
@@ -1047,7 +997,7 @@ const styles = StyleSheet.create({
   },
 
   logCard: {
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 14,
@@ -1085,6 +1035,8 @@ const styles = StyleSheet.create({
     color: COLORS.gray,
     marginTop: 4,
   },
+
+  logTimeRow: { flexDirection: "row", alignItems: "center", gap: 4 },
 
   logTime: {
     fontFamily: FONT.medium,
@@ -1195,7 +1147,7 @@ const styles = StyleSheet.create({
     width: 65,
     height: 65,
     borderRadius: 22,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.surface,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 15,

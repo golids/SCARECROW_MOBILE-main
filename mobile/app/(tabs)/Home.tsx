@@ -1,4 +1,3 @@
-
 import React from "react";
 import { useRouter } from "expo-router";
 import {
@@ -10,8 +9,27 @@ import {
   ActivityIndicator,
   Platform,
 } from "react-native";
+
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+
+import {
+  Cpu,
+  Wifi,
+  WifiOff,
+  Bird,
+  Activity,
+  TrendingUp,
+  Clock3,
+  RefreshCw,
+  CalendarDays,
+  ChevronUp,
+  ChevronDown,
+  ChevronRight,
+  ChartNoAxesColumn,
+  Info,
+  type LucideIcon,
+} from "lucide-react-native";
+
 import DateTimePicker, {
   DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
@@ -32,21 +50,7 @@ import {
 /*                                   COLORS                                   */
 /* -------------------------------------------------------------------------- */
 
-const COLORS = {
-  white: "#FFFFFF",
-  darkGreen: "#123B25",
-  primary: "#4F8F3A",
-  lightGreen: "#E8F0B8",
-  veryLightGreen: "#F7F9E9",
-  gold: "#D9B83F",
-  lightGold: "#FBF7E7",
-  gray: "#808080",
-  muted: "#849084",
-  lightGray: "#F5F5F5",
-  border: "#E5E9D2",
-  red: "#D32F2F",
-  lightRed: "#FDECEA",
-};
+import { useTheme, type ThemeColors } from "../../context/ThemeContext";
 
 /* -------------------------------------------------------------------------- */
 /*                                    TYPES                                   */
@@ -55,7 +59,7 @@ const COLORS = {
 type StatsPreset = "all" | "today" | "yesterday" | "custom";
 
 type StatCardProps = {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: LucideIcon;
   label: string;
   value: number | string;
   note: string;
@@ -73,7 +77,10 @@ function isBirdDetection(log: DetectionLog) {
 function isOfflineEvent(log: DetectionLog) {
   const event = `${log.event_type} ${log.label}`.toLowerCase();
 
-  return event.includes("offline") || event.includes("disconnect");
+  return (
+    event.includes("offline") ||
+    event.includes("disconnect")
+  );
 }
 
 function startOfToday() {
@@ -173,12 +180,15 @@ function formatPeakTime(hour: number) {
 /* -------------------------------------------------------------------------- */
 
 function StatCard({
-  icon,
+  icon: Icon,
   label,
   value,
   note,
   tone = "green",
 }: StatCardProps) {
+  const { colors: COLORS, isDark } = useTheme();
+  const styles = React.useMemo(() => createStyles(COLORS, isDark), [COLORS, isDark]);
+
   const iconStyle =
     tone === "gold"
       ? styles.statIconGold
@@ -188,7 +198,7 @@ function StatCard({
 
   const iconColor =
     tone === "gold"
-      ? "#B08A22"
+      ? (isDark ? COLORS.gold : "#B08A22")
       : tone === "red"
         ? COLORS.red
         : COLORS.primary;
@@ -196,7 +206,11 @@ function StatCard({
   return (
     <View style={styles.statCard}>
       <View style={[styles.statIcon, iconStyle]}>
-        <Ionicons name={icon} size={19} color={iconColor} />
+        <Icon
+          size={19}
+          color={iconColor}
+          strokeWidth={2}
+        />
       </View>
 
       <Text style={styles.statLabel}>{label}</Text>
@@ -209,7 +223,7 @@ function StatCard({
 }
 
 /* -------------------------------------------------------------------------- */
-/*                              DEVICE STATUS ROW                            */
+/*                              DEVICE STATUS ROW                             */
 /* -------------------------------------------------------------------------- */
 
 function DeviceStatusRow({
@@ -221,8 +235,16 @@ function DeviceStatusRow({
   selected: boolean;
   onPress: () => void;
 }) {
+  const { colors: COLORS, isDark } = useTheme();
+  const styles = React.useMemo(() => createStyles(COLORS, isDark), [COLORS, isDark]);
+
   const { t } = useLanguage();
+
   const online = isRecentlyAlive(device);
+
+  const ExpandIcon = selected
+    ? ChevronUp
+    : ChevronDown;
 
   return (
     <TouchableOpacity
@@ -240,19 +262,25 @@ function DeviceStatusRow({
             !online && styles.deviceIconOffline,
           ]}
         >
-          <Ionicons
-            name="hardware-chip-outline"
+          <Cpu
             size={20}
             color={online ? COLORS.primary : COLORS.gray}
+            strokeWidth={2}
           />
         </View>
 
         <View style={styles.deviceMain}>
-          <Text style={styles.deviceName} numberOfLines={1}>
+          <Text
+            style={styles.deviceName}
+            numberOfLines={1}
+          >
             {device.name}
           </Text>
 
-          <Text style={styles.deviceDetails} numberOfLines={2}>
+          <Text
+            style={styles.deviceDetails}
+            numberOfLines={2}
+          >
             {device.location || t("locationMissing")} ·{" "}
             {formatLastSeen(device.last_seen, t)}
           </Text>
@@ -261,20 +289,26 @@ function DeviceStatusRow({
         <View
           style={[
             styles.statusBadge,
-            online ? styles.statusOnline : styles.statusOffline,
+            online
+              ? styles.statusOnline
+              : styles.statusOffline,
           ]}
         >
           <View
             style={[
               styles.statusDot,
-              online ? styles.dotOnline : styles.dotOffline,
+              online
+                ? styles.dotOnline
+                : styles.dotOffline,
             ]}
           />
 
           <Text
             style={[
               styles.statusText,
-              online ? styles.textOnline : styles.textOffline,
+              online
+                ? styles.textOnline
+                : styles.textOffline,
             ]}
           >
             {online ? t("online") : t("offline")}
@@ -289,13 +323,17 @@ function DeviceStatusRow({
             selected && styles.selectionTextSelected,
           ]}
         >
-          {selected ? t("selected") : t("viewStatistics")}
+          {selected
+            ? t("selected")
+            : t("viewStatistics")}
         </Text>
 
-        <Ionicons
-          name={selected ? "chevron-up" : "chevron-down"}
+        <ExpandIcon
           size={15}
-          color={selected ? COLORS.primary : COLORS.gray}
+          color={
+            selected ? COLORS.primary : COLORS.gray
+          }
+          strokeWidth={2}
         />
       </View>
     </TouchableOpacity>
@@ -303,23 +341,26 @@ function DeviceStatusRow({
 }
 
 /* -------------------------------------------------------------------------- */
-/*                            DEVICE STAT TILE                               */
+/*                            DEVICE STAT TILE                                */
 /* -------------------------------------------------------------------------- */
 
 function DeviceStatTile({
-  icon,
+  icon: Icon,
   label,
   value,
   tone = "green",
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: LucideIcon;
   label: string;
   value: string | number;
   tone?: "green" | "gold" | "red";
 }) {
+  const { colors: COLORS, isDark } = useTheme();
+  const styles = React.useMemo(() => createStyles(COLORS, isDark), [COLORS, isDark]);
+
   const iconColor =
     tone === "gold"
-      ? "#B08A22"
+      ? (isDark ? COLORS.gold : "#B08A22")
       : tone === "red"
         ? COLORS.red
         : COLORS.primary;
@@ -339,12 +380,20 @@ function DeviceStatTile({
           { backgroundColor: iconBackground },
         ]}
       >
-        <Ionicons name={icon} size={17} color={iconColor} />
+        <Icon
+          size={17}
+          color={iconColor}
+          strokeWidth={2}
+        />
       </View>
 
-      <Text style={styles.deviceStatLabel}>{label}</Text>
+      <Text style={styles.deviceStatLabel}>
+        {label}
+      </Text>
 
-      <Text style={styles.deviceStatValue}>{value}</Text>
+      <Text style={styles.deviceStatValue}>
+        {value}
+      </Text>
     </View>
   );
 }
@@ -354,21 +403,35 @@ function DeviceStatTile({
 /* -------------------------------------------------------------------------- */
 
 export default function HomeScreen() {
+  const { colors: COLORS, isDark } = useTheme();
+  const styles = React.useMemo(() => createStyles(COLORS, isDark), [COLORS, isDark]);
+
   const router = useRouter();
   const { t } = useLanguage();
 
-  const [devices, setDevices] = React.useState<Device[]>([]);
-  const [logs, setLogs] = React.useState<DetectionLog[]>([]);
+  const [devices, setDevices] =
+    React.useState<Device[]>([]);
+
+  const [logs, setLogs] =
+    React.useState<DetectionLog[]>([]);
 
   const [selectedDeviceId, setSelectedDeviceId] =
     React.useState<string | null>(null);
 
-  const [preset, setPreset] = React.useState<StatsPreset>("all");
-  const [customDate, setCustomDate] = React.useState<Date | null>(null);
-  const [showDatePicker, setShowDatePicker] = React.useState(false);
+  const [preset, setPreset] =
+    React.useState<StatsPreset>("all");
 
-  const [loading, setLoading] = React.useState(true);
-  const [refreshing, setRefreshing] = React.useState(false);
+  const [customDate, setCustomDate] =
+    React.useState<Date | null>(null);
+
+  const [showDatePicker, setShowDatePicker] =
+    React.useState(false);
+
+  const [loading, setLoading] =
+    React.useState(true);
+
+  const [refreshing, setRefreshing] =
+    React.useState(false);
 
   // Re-render every 15 seconds so device status follows last_seen.
   const [tick, setTick] = React.useState(0);
@@ -394,17 +457,21 @@ export default function HomeScreen() {
 
     async function initialize() {
       try {
-        const [deviceData, logData] = await Promise.all([
-          fetchDevices(),
-          fetchDetectionLogs(500),
-        ]);
+        const [deviceData, logData] =
+          await Promise.all([
+            fetchDevices(),
+            fetchDetectionLogs(500),
+          ]);
 
         if (!mounted) return;
 
         setDevices(deviceData);
         setLogs(logData);
       } catch (error) {
-        console.warn("Failed to load Home dashboard:", error);
+        console.warn(
+          "Failed to load Home dashboard:",
+          error
+        );
       } finally {
         if (mounted) setLoading(false);
       }
@@ -422,7 +489,10 @@ export default function HomeScreen() {
   React.useEffect(() => {
     const unsubscribe = subscribeToDevices(() => {
       void loadDevices().catch((error) => {
-        console.warn("Failed to refresh devices:", error);
+        console.warn(
+          "Failed to refresh devices:",
+          error
+        );
       });
     });
 
@@ -432,15 +502,21 @@ export default function HomeScreen() {
   /* ---------------------------- REALTIME LOGS ---------------------------- */
 
   React.useEffect(() => {
-    const unsubscribe = subscribeToDetectionLogs((newLog) => {
-      setLogs((previous) => {
-        if (previous.some((item) => item.id === newLog.id)) {
-          return previous;
-        }
+    const unsubscribe = subscribeToDetectionLogs(
+      (newLog) => {
+        setLogs((previous) => {
+          if (
+            previous.some(
+              (item) => item.id === newLog.id
+            )
+          ) {
+            return previous;
+          }
 
-        return [newLog, ...previous].slice(0, 500);
-      });
-    });
+          return [newLog, ...previous].slice(0, 500);
+        });
+      }
+    );
 
     return unsubscribe;
   }, []);
@@ -463,15 +539,19 @@ export default function HomeScreen() {
     setRefreshing(true);
 
     try {
-      const [deviceData, logData] = await Promise.all([
-        fetchDevices(),
-        fetchDetectionLogs(500),
-      ]);
+      const [deviceData, logData] =
+        await Promise.all([
+          fetchDevices(),
+          fetchDetectionLogs(500),
+        ]);
 
       setDevices(deviceData);
       setLogs(logData);
     } catch (error) {
-      console.warn("Failed to refresh dashboard:", error);
+      console.warn(
+        "Failed to refresh dashboard:",
+        error
+      );
     } finally {
       setRefreshing(false);
     }
@@ -503,7 +583,9 @@ export default function HomeScreen() {
   }, [devices, tick]);
 
   const selectedDevice =
-    devices.find((device) => device.id === selectedDeviceId) ?? null;
+    devices.find(
+      (device) => device.id === selectedDeviceId
+    ) ?? null;
 
   /* ---------------------------- FLEET SUMMARY ---------------------------- */
 
@@ -511,27 +593,35 @@ export default function HomeScreen() {
     isRecentlyAlive(device)
   ).length;
 
-  const offlineDevices = devices.length - onlineDevices;
+  const offlineDevices =
+    devices.length - onlineDevices;
 
-  /* --------------------------- BIRD DETECTIONS ---------------------------- */
+  /* --------------------------- BIRD DETECTIONS --------------------------- */
 
   const today = new Date();
 
   const allBirdLogs = logs.filter(isBirdDetection);
 
-  const allBirdDetectionsToday = allBirdLogs.filter((log) => {
-    return (
-      new Date(log.created_at).toDateString() === today.toDateString()
-    );
-  }).length;
+  const allBirdDetectionsToday =
+    allBirdLogs.filter((log) => {
+      return (
+        new Date(log.created_at).toDateString() ===
+        today.toDateString()
+      );
+    }).length;
 
   const weekStart = startOfToday();
   weekStart.setDate(weekStart.getDate() - 6);
 
-  const allBirdDetectionsThisWeek = allBirdLogs.filter((log) => {
-    const date = new Date(log.created_at);
-    return date >= weekStart && date <= new Date();
-  }).length;
+  const allBirdDetectionsThisWeek =
+    allBirdLogs.filter((log) => {
+      const date = new Date(log.created_at);
+
+      return (
+        date >= weekStart &&
+        date <= new Date()
+      );
+    }).length;
 
   /* ----------------------- SELECTED DEVICE STATISTICS -------------------- */
 
@@ -544,7 +634,10 @@ export default function HomeScreen() {
 
     let filteredLogs: DetectionLog[] = selectedLogs;
 
-    const targetDate = getTargetDate(preset, customDate);
+    const targetDate = getTargetDate(
+      preset,
+      customDate
+    );
 
     if (targetDate) {
       filteredLogs = selectedLogs.filter((log) =>
@@ -552,16 +645,21 @@ export default function HomeScreen() {
       );
     }
 
-    const birdLogs = filteredLogs.filter(isBirdDetection);
-    const offlineLogs = filteredLogs.filter(isOfflineEvent);
+    const birdLogs =
+      filteredLogs.filter(isBirdDetection);
 
-    const detectedToday = selectedLogs.filter((log) => {
-      return (
-        isBirdDetection(log) &&
-        new Date(log.created_at).toDateString() ===
-          new Date().toDateString()
-      );
-    }).length;
+    const offlineLogs =
+      filteredLogs.filter(isOfflineEvent);
+
+    const detectedToday = selectedLogs.filter(
+      (log) => {
+        return (
+          isBirdDetection(log) &&
+          new Date(log.created_at).toDateString() ===
+            new Date().toDateString()
+        );
+      }
+    ).length;
 
     let averagePerDay = 0;
 
@@ -575,7 +673,11 @@ export default function HomeScreen() {
 
         averagePerDay =
           uniqueDays > 0
-            ? Number((birdLogs.length / uniqueDays).toFixed(1))
+            ? Number(
+                (
+                  birdLogs.length / uniqueDays
+                ).toFixed(1)
+              )
             : 0;
       } else {
         averagePerDay = birdLogs.length;
@@ -588,11 +690,17 @@ export default function HomeScreen() {
       const hours = new Array(24).fill(0);
 
       birdLogs.forEach((log) => {
-        const hour = new Date(log.created_at).getHours();
+        const hour = new Date(
+          log.created_at
+        ).getHours();
+
         hours[hour] += 1;
       });
 
-      const peakHour = hours.indexOf(Math.max(...hours));
+      const peakHour = hours.indexOf(
+        Math.max(...hours)
+      );
+
       peakTime = formatPeakTime(peakHour);
     }
 
@@ -605,14 +713,23 @@ export default function HomeScreen() {
       peakTime,
       hasRecords: filteredLogs.length > 0,
     };
-  }, [logs, selectedDeviceId, preset, customDate, tick]);
+  }, [
+    logs,
+    selectedDeviceId,
+    preset,
+    customDate,
+    tick,
+  ]);
 
   /* ---------------------------------------------------------------------- */
   /*                                  RENDER                                */
   /* ---------------------------------------------------------------------- */
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
+    <SafeAreaView
+      style={styles.safe}
+      edges={["top"]}
+    >
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -622,7 +739,9 @@ export default function HomeScreen() {
 
         <View style={styles.header}>
           <View style={styles.headerText}>
-            <Text style={styles.pageTitle}>{t("overview")}</Text>
+            <Text style={styles.pageTitle}>
+              {t("overview")}
+            </Text>
 
             <Text style={styles.pageSubtitle}>
               {t("overviewDesc")}
@@ -636,12 +755,15 @@ export default function HomeScreen() {
             activeOpacity={0.75}
           >
             {refreshing ? (
-              <ActivityIndicator size="small" color={COLORS.white} />
+              <ActivityIndicator
+                size="small"
+                color={COLORS.buttonText}
+              />
             ) : (
-              <Ionicons
-                name="refresh-outline"
+              <RefreshCw
                 size={20}
-                color={COLORS.white}
+                color={COLORS.buttonText}
+                strokeWidth={2}
               />
             )}
           </TouchableOpacity>
@@ -651,7 +773,7 @@ export default function HomeScreen() {
 
         <View style={styles.summaryGrid}>
           <StatCard
-            icon="hardware-chip-outline"
+            icon={Cpu}
             label={t("registered")}
             value={loading ? "—" : devices.length}
             note={t("registeredNote")}
@@ -659,7 +781,7 @@ export default function HomeScreen() {
           />
 
           <StatCard
-            icon="wifi-outline"
+            icon={Wifi}
             label={t("onlineDevices")}
             value={loading ? "—" : onlineDevices}
             note={`${offlineDevices} ${t("offline")}`}
@@ -667,15 +789,21 @@ export default function HomeScreen() {
           />
 
           <StatCard
-            icon="radio-outline"
+            icon={Bird}
             label={t("birdsToday")}
-            value={loading ? "—" : allBirdDetectionsToday}
-            note={`${allBirdDetectionsThisWeek} ${t("thisWeek")}`}
+            value={
+              loading
+                ? "—"
+                : allBirdDetectionsToday
+            }
+            note={`${allBirdDetectionsThisWeek} ${t(
+              "thisWeek"
+            )}`}
             tone="green"
           />
 
           <StatCard
-            icon="heart-dislike-outline"
+            icon={WifiOff}
             label={t("offlineDevices")}
             value={loading ? "—" : offlineDevices}
             note={t("deviceActivity")}
@@ -706,10 +834,10 @@ export default function HomeScreen() {
                 {t("devices")}
               </Text>
 
-              <Ionicons
-                name="chevron-forward"
+              <ChevronRight
                 size={14}
                 color={COLORS.primary}
+                strokeWidth={2}
               />
             </TouchableOpacity>
           </View>
@@ -727,10 +855,10 @@ export default function HomeScreen() {
             </View>
           ) : sortedDevices.length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons
-                name="hardware-chip-outline"
+              <Cpu
                 size={30}
-                color="#A9B69F"
+                color={isDark ? COLORS.muted : "#A9B69F"}
+                strokeWidth={2}
               />
 
               <Text style={styles.emptyTitle}>
@@ -743,10 +871,14 @@ export default function HomeScreen() {
                 <DeviceStatusRow
                   key={device.id}
                   device={device}
-                  selected={selectedDeviceId === device.id}
+                  selected={
+                    selectedDeviceId === device.id
+                  }
                   onPress={() =>
                     setSelectedDeviceId((current) =>
-                      current === device.id ? null : device.id
+                      current === device.id
+                        ? null
+                        : device.id
                     )
                   }
                 />
@@ -766,7 +898,8 @@ export default function HomeScreen() {
                 </Text>
 
                 <Text style={styles.panelSubtitle}>
-                  {t("statisticsFor")} {selectedDevice.name}
+                  {t("statisticsFor")}{" "}
+                  {selectedDevice.name}
                 </Text>
               </View>
             </View>
@@ -788,7 +921,8 @@ export default function HomeScreen() {
                     key={key}
                     style={[
                       styles.filterButton,
-                      active && styles.filterButtonActive,
+                      active &&
+                        styles.filterButtonActive,
                     ]}
                     activeOpacity={0.8}
                     onPress={() => setPreset(key)}
@@ -796,7 +930,8 @@ export default function HomeScreen() {
                     <Text
                       style={[
                         styles.filterText,
-                        active && styles.filterTextActive,
+                        active &&
+                          styles.filterTextActive,
                       ]}
                     >
                       {label}
@@ -808,31 +943,40 @@ export default function HomeScreen() {
               <TouchableOpacity
                 style={[
                   styles.filterButton,
-                  preset === "custom" && styles.filterButtonActive,
+                  preset === "custom" &&
+                    styles.filterButtonActive,
                 ]}
                 activeOpacity={0.8}
-                onPress={() => setShowDatePicker(true)}
+                onPress={() =>
+                  setShowDatePicker(true)
+                }
               >
-                <Ionicons
-                  name="calendar-outline"
+                <CalendarDays
                   size={12}
                   color={
-                    preset === "custom" ? COLORS.white : "#526456"
+                    preset === "custom"
+                      ? (isDark ? COLORS.text : COLORS.white)
+                      : (isDark ? COLORS.muted : "#526456")
                   }
+                  strokeWidth={2}
                 />
 
                 <Text
                   style={[
                     styles.filterText,
-                    preset === "custom" && styles.filterTextActive,
+                    preset === "custom" &&
+                      styles.filterTextActive,
                   ]}
                 >
                   {preset === "custom" && customDate
-                    ? customDate.toLocaleDateString([], {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })
+                    ? customDate.toLocaleDateString(
+                        [],
+                        {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        }
+                      )
                     : "custom"}
                 </Text>
               </TouchableOpacity>
@@ -840,9 +984,14 @@ export default function HomeScreen() {
 
             {showDatePicker && (
               <DateTimePicker
+                themeVariant={isDark ? "dark" : "light"}
                 value={customDate ?? new Date()}
                 mode="date"
-                display={Platform.OS === "ios" ? "inline" : "default"}
+                display={
+                  Platform.OS === "ios"
+                    ? "inline"
+                    : "default"
+                }
                 maximumDate={new Date()}
                 onChange={handleDateChange}
               />
@@ -852,42 +1001,52 @@ export default function HomeScreen() {
 
             <View style={styles.deviceStatsGrid}>
               <DeviceStatTile
-                icon="pulse-outline"
+                icon={Activity}
                 label={t("totalEvents")}
-                value={selectedDeviceStats.totalEvents}
+                value={
+                  selectedDeviceStats.totalEvents
+                }
                 tone="green"
               />
 
               <DeviceStatTile
-                icon="alert-circle-outline"
+                icon={Bird}
                 label={t("birdAlerts")}
-                value={selectedDeviceStats.birdAlerts}
+                value={
+                  selectedDeviceStats.birdAlerts
+                }
                 tone="green"
               />
 
               <DeviceStatTile
-                icon="wifi-outline"
+                icon={WifiOff}
                 label={t("offlineEvents")}
-                value={selectedDeviceStats.offlineEvents}
+                value={
+                  selectedDeviceStats.offlineEvents
+                }
                 tone="red"
               />
 
               <DeviceStatTile
-                icon="eye-outline"
+                icon={Bird}
                 label={t("detectedToday")}
-                value={selectedDeviceStats.detectedToday}
+                value={
+                  selectedDeviceStats.detectedToday
+                }
                 tone="gold"
               />
 
               <DeviceStatTile
-                icon="trending-up-outline"
+                icon={TrendingUp}
                 label={t("averagePerDay")}
-                value={selectedDeviceStats.averagePerDay}
+                value={
+                  selectedDeviceStats.averagePerDay
+                }
                 tone="green"
               />
 
               <DeviceStatTile
-                icon="time-outline"
+                icon={Clock3}
                 label={t("peakTime")}
                 value={selectedDeviceStats.peakTime}
                 tone="green"
@@ -896,10 +1055,10 @@ export default function HomeScreen() {
 
             {!selectedDeviceStats.hasRecords && (
               <View style={styles.noStats}>
-                <Ionicons
-                  name="stats-chart-outline"
+                <ChartNoAxesColumn
                   size={22}
                   color={COLORS.gray}
+                  strokeWidth={2}
                 />
 
                 <Text style={styles.noStatsText}>
@@ -913,16 +1072,18 @@ export default function HomeScreen() {
         {/* STATUS INFORMATION NOTE */}
 
         <View style={styles.noteStrip}>
-          <Ionicons
-            name="information-circle-outline"
+          <Info
             size={19}
             color={COLORS.primary}
+            strokeWidth={2}
           />
 
           <Text style={styles.noteText}>
             {t("statusNote")} {t("statusNoteEnd")}
           </Text>
         </View>
+
+        {/* FOOTER */}
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>
@@ -938,10 +1099,10 @@ export default function HomeScreen() {
 /*                                   STYLES                                   */
 /* -------------------------------------------------------------------------- */
 
-const styles = StyleSheet.create({
+const createStyles = (COLORS: ThemeColors, isDark: boolean) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#F8FAF5",
+    backgroundColor: (isDark ? COLORS.background : "#F8FAF5"),
   },
 
   scroll: {
@@ -953,6 +1114,8 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 125,
   },
+
+  /* HEADER */
 
   header: {
     flexDirection: "row",
@@ -990,6 +1153,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  /* SUMMARY CARDS */
+
   summaryGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1003,9 +1168,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
     minHeight: 139,
     padding: 13,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.surface,
     borderWidth: 1,
-    borderColor: "#E8EDE3",
+    borderColor: (isDark ? COLORS.border : "#E8EDE3"),
     borderRadius: 13,
   },
 
@@ -1019,7 +1184,7 @@ const styles = StyleSheet.create({
   },
 
   statIconGreen: {
-    backgroundColor: "#EAF5E9",
+    backgroundColor: (isDark ? COLORS.lightGreen : "#EAF5E9"),
   },
 
   statIconGold: {
@@ -1034,13 +1199,13 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 14,
     fontFamily: "PlusJakartaSans_600SemiBold",
-    color: "#718072",
+    color: (isDark ? COLORS.muted : "#718072"),
   },
 
   statValue: {
     fontSize: 25,
     fontFamily: "PlusJakartaSans_700Bold",
-    color: "#173D27",
+    color: (isDark ? COLORS.text : "#173D27"),
     marginTop: 4,
   },
 
@@ -1048,14 +1213,16 @@ const styles = StyleSheet.create({
     fontSize: 9,
     lineHeight: 13,
     fontFamily: "PlusJakartaSans_400Regular",
-    color: "#9AA49A",
+    color: (isDark ? COLORS.muted : "#9AA49A"),
     marginTop: 2,
   },
 
+  /* PANELS */
+
   panel: {
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.surface,
     borderWidth: 1,
-    borderColor: "#E8EDE3",
+    borderColor: (isDark ? COLORS.border : "#E8EDE3"),
     borderRadius: 13,
     padding: 15,
     marginBottom: 16,
@@ -1076,13 +1243,13 @@ const styles = StyleSheet.create({
   panelTitle: {
     fontSize: 16,
     fontFamily: "PlusJakartaSans_700Bold",
-    color: "#1B3E29",
+    color: (isDark ? COLORS.text : "#1B3E29"),
   },
 
   panelSubtitle: {
     fontSize: 10,
     fontFamily: "PlusJakartaSans_400Regular",
-    color: "#929D91",
+    color: (isDark ? COLORS.muted : "#929D91"),
     marginTop: 4,
   },
 
@@ -1100,6 +1267,8 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
   },
 
+  /* DEVICE LIST */
+
   deviceList: {
     gap: 4,
   },
@@ -1112,7 +1281,7 @@ const styles = StyleSheet.create({
   },
 
   deviceSelectSelected: {
-    backgroundColor: "#EDF4E7",
+    backgroundColor: (isDark ? COLORS.surfaceHover : "#EDF4E7"),
   },
 
   deviceRow: {
@@ -1125,7 +1294,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 10,
-    backgroundColor: "#F1F5E9",
+    backgroundColor: (isDark ? COLORS.surfaceSecondary : "#F1F5E9"),
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1142,16 +1311,18 @@ const styles = StyleSheet.create({
   deviceName: {
     fontSize: 12,
     fontFamily: "PlusJakartaSans_700Bold",
-    color: "#294331",
+    color: (isDark ? COLORS.text : "#294331"),
   },
 
   deviceDetails: {
     fontSize: 9,
     lineHeight: 14,
     fontFamily: "PlusJakartaSans_400Regular",
-    color: "#909B90",
+    color: (isDark ? COLORS.muted : "#909B90"),
     marginTop: 4,
   },
+
+  /* DEVICE STATUS */
 
   statusBadge: {
     flexDirection: "row",
@@ -1163,11 +1334,11 @@ const styles = StyleSheet.create({
   },
 
   statusOnline: {
-    backgroundColor: "#EDF7EB",
+    backgroundColor: (isDark ? COLORS.lightGreen : "#EDF7EB"),
   },
 
   statusOffline: {
-    backgroundColor: "#FFF0ED",
+    backgroundColor: (isDark ? COLORS.lightRed : "#FFF0ED"),
   },
 
   statusDot: {
@@ -1177,11 +1348,11 @@ const styles = StyleSheet.create({
   },
 
   dotOnline: {
-    backgroundColor: "#3F8745",
+    backgroundColor: (isDark ? COLORS.primary : "#3F8745"),
   },
 
   dotOffline: {
-    backgroundColor: "#D45D50",
+    backgroundColor: (isDark ? COLORS.red : "#D45D50"),
   },
 
   statusText: {
@@ -1190,11 +1361,11 @@ const styles = StyleSheet.create({
   },
 
   textOnline: {
-    color: "#3F8745",
+    color: (isDark ? COLORS.primary : "#3F8745"),
   },
 
   textOffline: {
-    color: "#C75448",
+    color: (isDark ? COLORS.red : "#C75448"),
   },
 
   deviceSelectionFooter: {
@@ -1215,6 +1386,8 @@ const styles = StyleSheet.create({
   selectionTextSelected: {
     color: COLORS.primary,
   },
+
+  /* LOADING AND EMPTY STATES */
 
   loadingState: {
     minHeight: 100,
@@ -1252,6 +1425,8 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
 
+  /* DATE FILTERS */
+
   filterRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1269,23 +1444,25 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     paddingHorizontal: 11,
     paddingVertical: 9,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.surface,
   },
 
   filterButtonActive: {
-    backgroundColor: COLORS.darkGreen,
-    borderColor: COLORS.darkGreen,
+    backgroundColor: isDark ? COLORS.lightGreen : COLORS.darkGreen,
+    borderColor: isDark ? COLORS.primary : COLORS.darkGreen,
   },
 
   filterText: {
     fontSize: 10,
     fontFamily: "PlusJakartaSans_600SemiBold",
-    color: "#526456",
+    color: (isDark ? COLORS.muted : "#526456"),
   },
 
   filterTextActive: {
-    color: COLORS.white,
+    color: isDark ? COLORS.text : COLORS.white,
   },
+
+  /* DEVICE STATISTICS */
 
   deviceStatsGrid: {
     flexDirection: "row",
@@ -1300,9 +1477,9 @@ const styles = StyleSheet.create({
     minHeight: 112,
     padding: 11,
     borderWidth: 1,
-    borderColor: "#E8EDE3",
+    borderColor: (isDark ? COLORS.border : "#E8EDE3"),
     borderRadius: 10,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.surface,
   },
 
   deviceStatIcon: {
@@ -1317,13 +1494,13 @@ const styles = StyleSheet.create({
   deviceStatLabel: {
     fontSize: 10,
     fontFamily: "PlusJakartaSans_500Medium",
-    color: "#718072",
+    color: (isDark ? COLORS.muted : "#718072"),
   },
 
   deviceStatValue: {
     fontSize: 21,
     fontFamily: "PlusJakartaSans_700Bold",
-    color: "#173D27",
+    color: (isDark ? COLORS.text : "#173D27"),
     marginTop: 4,
   },
 
@@ -1343,11 +1520,13 @@ const styles = StyleSheet.create({
     marginTop: 7,
   },
 
+  /* STATUS INFORMATION */
+
   noteStrip: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 9,
-    backgroundColor: "#F1F5E9",
+    backgroundColor: (isDark ? COLORS.surfaceSecondary : "#F1F5E9"),
     borderRadius: 9,
     padding: 13,
     marginTop: 1,
@@ -1358,8 +1537,10 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 16,
     fontFamily: "PlusJakartaSans_400Regular",
-    color: "#61715E",
+    color: (isDark ? COLORS.muted : "#61715E"),
   },
+
+  /* FOOTER */
 
   footer: {
     alignItems: "center",
@@ -1369,7 +1550,7 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 9,
     fontFamily: "PlusJakartaSans_600SemiBold",
-    color: "#A0AAA0",
+    color: (isDark ? COLORS.muted : "#A0AAA0"),
     letterSpacing: 0.4,
   },
 });

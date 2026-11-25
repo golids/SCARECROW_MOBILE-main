@@ -12,6 +12,37 @@ export type Language = "en" | "ceb";
 
 const translations = {
   en: {
+    // Client Settings
+    clientAccount: "Client Account",
+    loadingSettings: "Loading settings...",
+    editProfile: "Edit Profile",
+    editProfileSubtitle: "Update your account information.",
+    fullNameRequired: "Full Name *",
+    enterFullNamePlaceholder: "Enter your full name",
+    contactNumber: "Contact Number",
+    enterContactNumber: "Enter your contact number",
+    province: "Province",
+    enterProvince: "Enter your province",
+    municipalityCity: "Municipality / City",
+    enterMunicipalityCity: "Enter your municipality or city",
+    barangay: "Barangay",
+    enterBarangay: "Enter your barangay",
+    saveChanges: "Save Changes",
+    missingInformation: "Missing Information",
+    enterFullName: "Please enter your full name.",
+    sessionExpired: "Session Expired",
+    loginAgain: "Please log in again.",
+    success: "Success",
+    profileUpdated: "Your profile has been updated.",
+    updateFailed: "Update Failed",
+    profileUpdateFailed: "Unable to update your profile.",
+    notLoggedIn: "You are not logged in.",
+    clientLogoutConfirmation: "Are you sure you want to log out of your account?",
+    mobileAppFooter: "ScareCROW Mobile App",
+    settingsLoadTitle: "Unable to Load Settings",
+    tryLater: "Please try again later.",
+    profileNotUpdated: "No profile was updated.",
+
     // Navigation
     appName: "ScareCROW",
     home: "Home",
@@ -145,7 +176,10 @@ const translations = {
       "Manage your account and application preferences.",
     settingsDesc:
       "Manage your administrator session and notification preferences.",
-
+    appearance: "Appearance",
+    darkMode: "Dark Mode",
+    darkModeDescription: "Switch between light and dark themes.",
+    themeSaveFailed: "Unable to save theme preference.",
     // Notifications
     notifications: "Notification preferences",
     notificationPreferences: "Notification Preferences",
@@ -399,6 +433,37 @@ const translations = {
   },
 
   ceb: {
+    // Client Settings
+    clientAccount: "Account sa Kliyente",
+    loadingSettings: "Nag-load sa mga setting...",
+    editProfile: "Usba ang Profile",
+    editProfileSubtitle: "I-update ang impormasyon sa imong account.",
+    fullNameRequired: "Tibuok Ngalan *",
+    enterFullNamePlaceholder: "Isulod ang imong tibuok ngalan",
+    contactNumber: "Numero sa Telepono",
+    enterContactNumber: "Isulod ang imong numero sa telepono",
+    province: "Probinsya",
+    enterProvince: "Isulod ang imong probinsya",
+    municipalityCity: "Munisipyo / Siyudad",
+    enterMunicipalityCity: "Isulod ang imong munisipyo o siyudad",
+    barangay: "Barangay",
+    enterBarangay: "Isulod ang imong barangay",
+    saveChanges: "I-save ang mga Kausaban",
+    missingInformation: "Kulang nga Impormasyon",
+    enterFullName: "Palihog isulod ang imong tibuok ngalan.",
+    sessionExpired: "Na-expire ang Sesyon",
+    loginAgain: "Palihog pag-log in pag-usab.",
+    success: "Malampuson",
+    profileUpdated: "Na-update na ang imong profile.",
+    updateFailed: "Napakyas ang Pag-update",
+    profileUpdateFailed: "Dili ma-update ang imong profile.",
+    notLoggedIn: "Wala ka naka-log in.",
+    clientLogoutConfirmation: "Sigurado ka nga gusto nimong mogawas sa imong account?",
+    mobileAppFooter: "ScareCROW nga Mobile App",
+    settingsLoadTitle: "Dili Ma-load ang mga Setting",
+    tryLater: "Palihog sulayi pag-usab unya.",
+    profileNotUpdated: "Walay profile nga na-update.",
+
     // Navigation
     appName: "ScareCROW",
     home: "Balay",
@@ -541,7 +606,10 @@ const translations = {
       "Pagdumala sa imong account ug mga setting sa aplikasyon.",
     settingsDesc:
       "Pagdumala sa imong admin session ug mga pahibalo.",
-
+    appearance: "Hitsura",
+    darkMode: "Ngitngit nga Tema",
+    darkModeDescription: "Pagbalhin tali sa hayag ug ngitngit nga tema.",
+    themeSaveFailed: "Dili ma-save ang napiling tema.",
     // Notifications
     notifications: "Mga pahibalo",
     notificationPreferences: "Mga Pahibalo",

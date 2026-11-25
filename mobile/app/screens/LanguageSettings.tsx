@@ -7,25 +7,24 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+
+import {
+  ArrowLeft,
+  Languages,
+  MessageCircle,
+  Info,
+} from "lucide-react-native";
 
 import {
   useLanguage,
-  Language,
+  type Language,
 } from "../context/LanguageContext";
 
-const COLORS = {
-  white: "#FFFFFF",
-  darkGreen: "#123B25",
-  primary: "#4F8F3A",
-  lightGreen: "#E8F0B8",
-  veryLightGreen: "#F7F9E9",
-  gray: "#808080",
-  border: "#E5E9D2",
-};
+import { useTheme, type ThemeColors } from "../../context/ThemeContext";
 
 const LANGUAGES: {
   code: Language;
@@ -48,6 +47,9 @@ const LANGUAGES: {
 ];
 
 export default function LanguageSettings() {
+  const { colors: COLORS } = useTheme();
+  const styles = React.useMemo(() => createStyles(COLORS), [COLORS]);
+
   const router = useRouter();
 
   const {
@@ -59,6 +61,7 @@ export default function LanguageSettings() {
 
   const [saving, setSaving] = useState(false);
 
+  // CHANGE APPLICATION LANGUAGE
   const selectLanguage = async (newLanguage: Language) => {
     if (newLanguage === language || saving) return;
 
@@ -68,62 +71,97 @@ export default function LanguageSettings() {
       await changeLanguage(newLanguage);
 
       Alert.alert(
-        newLanguage === "ceb" ? "Pinulongan Gi-update" : "Language Updated",
-        t("languageSaved")
+        newLanguage === "ceb"
+          ? "Na-update ang Pinulongan"
+          : "Language Updated",
+        newLanguage === "ceb"
+          ? "Na-save na ang imong pinulongan."
+          : "Your language preference has been saved."
       );
     } catch (error) {
       console.error("Unable to save language:", error);
 
       Alert.alert(
         "Error",
-        newLanguage === "ceb"
-          ? "Dili ma-save ang pinulongan."
-          : "Unable to save your language preference."
+        "Unable to save your language preference. Please try again."
       );
     } finally {
       setSaving(false);
     }
   };
 
+  // BACK NAVIGATION
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)/settings");
+    }
+  };
+
+  // LOADING SCREEN
   if (!isLanguageReady) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingText}>{t("loading")}</Text>
+        <ActivityIndicator
+          size="large"
+          color={COLORS.primary}
+        />
+
+        <Text style={styles.loadingText}>
+          {t("loading")}
+        </Text>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <SafeAreaView
+      style={styles.container}
+      edges={["top", "bottom"]}
+    >
+      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.back()}
+          onPress={handleBack}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={
+            language === "ceb" ? "Balik" : "Go Back"
+          }
         >
-          <Ionicons
-            name="arrow-back"
+          <ArrowLeft
             size={22}
             color={COLORS.darkGreen}
+            strokeWidth={2}
           />
         </TouchableOpacity>
 
         <View style={styles.headerTextContainer}>
-          <Text style={styles.headerTitle}>{t("language")}</Text>
+          <Text style={styles.headerTitle}>
+            {t("language")}
+          </Text>
+
           <Text style={styles.headerSubtitle}>
             {t("languageDescription")}
           </Text>
         </View>
       </View>
 
-      <View style={styles.content}>
+      {/* SCROLLABLE CONTENT */}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* INFORMATION CARD */}
         <View style={styles.infoCard}>
           <View style={styles.infoIcon}>
-            <Ionicons
-              name="language-outline"
+            <Languages
               size={25}
               color={COLORS.primary}
+              strokeWidth={2}
             />
           </View>
 
@@ -136,6 +174,7 @@ export default function LanguageSettings() {
           </Text>
         </View>
 
+        {/* AVAILABLE LANGUAGES */}
         <Text style={styles.sectionLabel}>
           {t("availableLanguages").toUpperCase()}
         </Text>
@@ -149,16 +188,22 @@ export default function LanguageSettings() {
               style={[
                 styles.languageCard,
                 isSelected && styles.selectedLanguageCard,
+                saving && styles.disabledCard,
               ]}
               onPress={() => selectLanguage(item.code)}
               disabled={saving}
               activeOpacity={0.75}
+              accessibilityRole="radio"
+              accessibilityState={{
+                checked: isSelected,
+                disabled: saving,
+              }}
             >
               <View style={styles.languageIcon}>
-                <Ionicons
-                  name="chatbubble-ellipses-outline"
+                <MessageCircle
                   size={22}
                   color={COLORS.primary}
+                  strokeWidth={2}
                 />
               </View>
 
@@ -176,61 +221,73 @@ export default function LanguageSettings() {
                 </Text>
               </View>
 
+              {/* RADIO BUTTON */}
               <View
                 style={[
                   styles.radioOuter,
                   isSelected && styles.radioOuterSelected,
                 ]}
               >
-                {isSelected && <View style={styles.radioInner} />}
+                {isSelected && (
+                  <View style={styles.radioInner} />
+                )}
               </View>
             </TouchableOpacity>
           );
         })}
 
+        {/* SAVING INDICATOR */}
         {saving && (
           <View style={styles.savingContainer}>
             <ActivityIndicator
               size="small"
               color={COLORS.primary}
             />
+
             <Text style={styles.savingText}>
               {t("savingPreference")}
             </Text>
           </View>
         )}
 
+        {/* INFORMATION NOTE */}
         <View style={styles.noteCard}>
-          <Ionicons
-            name="information-circle-outline"
+          <Info
             size={19}
             color={COLORS.primary}
+            strokeWidth={2}
           />
+
           <Text style={styles.noteText}>
             {t("languageNote")}
           </Text>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+// STYLES
+const createStyles = (COLORS: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.background,
   },
+
   loadingContainer: {
     flex: 1,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.background,
     justifyContent: "center",
     alignItems: "center",
   },
+
   loadingText: {
+    fontFamily: "PlusJakartaSans_400Regular",
     fontSize: 13,
     color: COLORS.gray,
     marginTop: 12,
   },
+
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -239,6 +296,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
+
   backButton: {
     width: 42,
     height: 42,
@@ -248,22 +306,35 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 13,
   },
+
   headerTextContainer: {
     flex: 1,
   },
+
   headerTitle: {
+    fontFamily: "PlusJakartaSans_700Bold",
     fontSize: 21,
-    fontWeight: "700",
     color: COLORS.darkGreen,
   },
+
   headerSubtitle: {
+    fontFamily: "PlusJakartaSans_400Regular",
     fontSize: 11,
     color: COLORS.gray,
     marginTop: 4,
+    lineHeight: 17,
   },
+
+  scrollView: {
+    flex: 1,
+  },
+
   content: {
+    flexGrow: 1,
     padding: 20,
+    paddingBottom: 35,
   },
+
   infoCard: {
     alignItems: "center",
     backgroundColor: COLORS.veryLightGreen,
@@ -273,6 +344,7 @@ const styles = StyleSheet.create({
     padding: 23,
     marginBottom: 27,
   },
+
   infoIcon: {
     width: 55,
     height: 55,
@@ -282,40 +354,52 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
+
   infoTitle: {
+    fontFamily: "PlusJakartaSans_700Bold",
     fontSize: 16,
-    fontWeight: "700",
     color: COLORS.darkGreen,
+    textAlign: "center",
   },
+
   infoDescription: {
+    fontFamily: "PlusJakartaSans_400Regular",
     fontSize: 12,
     color: COLORS.gray,
     textAlign: "center",
     lineHeight: 18,
     marginTop: 6,
   },
+
   sectionLabel: {
+    fontFamily: "PlusJakartaSans_700Bold",
     fontSize: 11,
-    fontWeight: "700",
     color: COLORS.gray,
     letterSpacing: 1,
     marginBottom: 12,
   },
+
   languageCard: {
     flexDirection: "row",
     alignItems: "center",
     padding: 15,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.surface,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: COLORS.border,
     marginBottom: 12,
   },
+
   selectedLanguageCard: {
     backgroundColor: COLORS.veryLightGreen,
     borderColor: COLORS.primary,
     borderWidth: 1.5,
   },
+
+  disabledCard: {
+    opacity: 0.7,
+  },
+
   languageIcon: {
     width: 43,
     height: 43,
@@ -325,27 +409,34 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 12,
   },
+
   languageInfo: {
     flex: 1,
+    minWidth: 0,
     paddingRight: 8,
   },
+
   languageName: {
+    fontFamily: "PlusJakartaSans_700Bold",
     fontSize: 14,
-    fontWeight: "700",
     color: COLORS.darkGreen,
   },
+
   nativeName: {
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontSize: 11,
     color: COLORS.primary,
-    fontWeight: "600",
     marginTop: 2,
   },
+
   languageDescription: {
+    fontFamily: "PlusJakartaSans_400Regular",
     fontSize: 10,
     color: COLORS.gray,
     marginTop: 5,
     lineHeight: 15,
   },
+
   radioOuter: {
     width: 21,
     height: 21,
@@ -355,15 +446,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+
   radioOuterSelected: {
     borderColor: COLORS.primary,
   },
+
   radioInner: {
     width: 11,
     height: 11,
     borderRadius: 6,
     backgroundColor: COLORS.primary,
   },
+
   savingContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -371,10 +465,13 @@ const styles = StyleSheet.create({
     marginTop: 10,
     gap: 8,
   },
+
   savingText: {
+    fontFamily: "PlusJakartaSans_400Regular",
     fontSize: 12,
     color: COLORS.gray,
   },
+
   noteCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -384,8 +481,10 @@ const styles = StyleSheet.create({
     marginTop: 15,
     gap: 9,
   },
+
   noteText: {
     flex: 1,
+    fontFamily: "PlusJakartaSans_400Regular",
     fontSize: 11,
     color: COLORS.gray,
     lineHeight: 17,

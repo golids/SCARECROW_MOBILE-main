@@ -1,4 +1,3 @@
-
 import { Stack } from "expo-router";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
@@ -13,9 +12,18 @@ import {
 
 import { LanguageProvider } from "./context/LanguageContext";
 
-SplashScreen.preventAutoHideAsync();
+import {
+  ThemeProvider,
+  useTheme,
+} from "../context/ThemeContext";
 
-export default function RootLayout() {
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
+/* ROOT NAVIGATION */
+
+function RootNavigator() {
+  const { colors, isThemeReady } = useTheme();
+
   const [fontsLoaded, fontError] = useFonts({
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
@@ -23,27 +31,46 @@ export default function RootLayout() {
     PlusJakartaSans_700Bold,
   });
 
-  useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, fontError]);
+  const isReady =
+    (fontsLoaded || !!fontError) &&
+    isThemeReady;
 
-  if (!fontsLoaded && !fontError) {
+  useEffect(() => {
+    if (isReady) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [isReady]);
+
+  if (!isReady) {
     return null;
   }
 
   return (
-    <LanguageProvider>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-        }}
-      >
-        <Stack.Screen name="index" />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="screens/LanguageSettings" />
-      </Stack>
-    </LanguageProvider>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: {
+          backgroundColor: colors.background,
+        },
+      }}
+    >
+      <Stack.Screen name="index" />
+
+      <Stack.Screen name="(tabs)" />
+
+      <Stack.Screen name="screens" />
+    </Stack>
+  );
+}
+
+/* ROOT LAYOUT */
+
+export default function RootLayout() {
+  return (
+    <ThemeProvider>
+      <LanguageProvider>
+        <RootNavigator />
+      </LanguageProvider>
+    </ThemeProvider>
   );
 }
